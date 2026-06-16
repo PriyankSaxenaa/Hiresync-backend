@@ -29,7 +29,7 @@ npm run dev
 - [x] Project setup & DB connection
 - [x] User model
 - [x] Auth (register / login / logout)
-- [ ] Auth middleware (protect routes)
+- [x] Auth middleware (protect routes by role)
 - [ ] Job CRUD
 - [ ] Applications
 - [ ] Admin panel
