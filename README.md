@@ -17,9 +17,19 @@ cp .env.example .env
 npm run dev
 ```
 
+## Auth Endpoints
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| POST | /api/auth/register | Register new user |
+| POST | /api/auth/login | Login |
+| POST | /api/auth/logout | Logout |
+
 ## Progress
 - [x] Project setup & DB connection
-- [ ] Auth (register / login / logout)
+- [x] User model
+- [x] Auth (register / login / logout)
+- [ ] Auth middleware (protect routes)
 - [ ] Job CRUD
 - [ ] Applications
 - [ ] Admin panel
