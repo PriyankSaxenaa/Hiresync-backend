@@ -17,19 +17,31 @@ cp .env.example .env
 npm run dev
 ```
 
-## Auth Endpoints
+## API Endpoints
 
+### Auth
 | Method | Route | Description |
 |--------|-------|-------------|
 | POST | /api/auth/register | Register new user |
 | POST | /api/auth/login | Login |
 | POST | /api/auth/logout | Logout |
 
+### Jobs
+| Method | Route | Access | Description |
+|--------|-------|--------|-------------|
+| GET | /api/jobs | any logged-in user | Browse all jobs (filter by keyword, location, skills) |
+| GET | /api/jobs/:id | any logged-in user | Get single job |
+| POST | /api/jobs | recruiter | Post a new job |
+| PUT | /api/jobs/:id | recruiter | Update own job |
+| DELETE | /api/jobs/:id | recruiter | Delete own job |
+| GET | /api/jobs/recruiter/my-jobs | recruiter | Get all jobs posted by me |
+
 ## Progress
 - [x] Project setup & DB connection
 - [x] User model
 - [x] Auth (register / login / logout)
 - [x] Auth middleware (protect routes by role)
-- [ ] Job CRUD
+- [x] Job model + Job CRUD
+- [ ] Candidate profile
 - [ ] Applications
 - [ ] Admin panel
