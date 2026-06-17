@@ -36,12 +36,19 @@ npm run dev
 | DELETE | /api/jobs/:id | recruiter | Delete own job |
 | GET | /api/jobs/recruiter/my-jobs | recruiter | Get all jobs posted by me |
 
+### Candidate Profile
+| Method | Route | Access | Description |
+|--------|-------|--------|-------------|
+| GET | /api/jobs/profile | candidate | Get my profile |
+| PUT | /api/jobs/profile | candidate | Update my profile |
+
 ## Progress
 - [x] Project setup & DB connection
 - [x] User model
 - [x] Auth (register / login / logout)
 - [x] Auth middleware (protect routes by role)
 - [x] Job model + Job CRUD
-- [ ] Candidate profile
-- [ ] Applications
+- [x] Application model
+- [x] Candidate profile (get / update)
+- [ ] Applications (apply, withdraw, save)
 - [ ] Admin panel
