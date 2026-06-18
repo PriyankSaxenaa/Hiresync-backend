@@ -1,7 +1,7 @@
 const applicationModel = require('../models/application.model');
 const jobModel = require('../models/job.model');
 const userModel = require('../models/user.model');
-// const { sendEmail } = require('../utils/sendEmail'); // adding email notifications tomorrow
+const { sendEmail } = require('../utils/sendEmail');
 
 // ─── Candidate ────────────────────────────────────────────────────────────────
 
@@ -27,9 +27,13 @@ async function applyToJob(req, res) {
         job: jobId
     });
 
-    // TODO: send confirmation email to candidate
-    // const candidate = await userModel.findById(req.user.id);
-    // await sendEmail({ to: candidate.email, subject: `Application Submitted – ${job.title}`, html: `...` })
+    // Email notification to candidate
+    const candidate = await userModel.findById(req.user.id);
+    await sendEmail({
+        to: candidate.email,
+        subject: `Application Submitted – ${job.title} at ${job.company}`,
+        html: `<p>Hi ${candidate.name},</p><p>Your application for <strong>${job.title}</strong> at <strong>${job.company}</strong> has been submitted successfully.</p>`
+    }).catch(() => {}); // silent fail — don't block the response
 
     res.status(201).json({
         message: 'Application submitted successfully',
@@ -138,7 +142,7 @@ async function updateApplicationStatus(req, res) {
         return res.status(404).json({ message: 'Application not found' });
     }
 
-    // make sure recruiter owns this job
+    // Make sure recruiter owns this job
     const job = await jobModel.findOne({ _id: application.job._id, recruiter: req.user.id });
     if (!job) {
         return res.status(403).json({ message: 'You are not authorized to update this application' });
@@ -147,9 +151,17 @@ async function updateApplicationStatus(req, res) {
     application.status = status;
     await application.save();
 
-    // TODO: notify candidate by email when status changes
-    // const candidate = await userModel.findById(application.candidate);
-    // await sendEmail({ to: candidate.email, subject, html }).catch(() => {});
+    // Email notification to candidate
+    const candidate = await userModel.findById(application.candidate);
+    const subject = status === 'accepted'
+        ? `Congratulations! Your application for ${job.title} was Accepted`
+        : `Update on your application for ${job.title}`;
+
+    const html = status === 'accepted'
+        ? `<p>Hi ${candidate.name},</p><p>We are pleased to inform you that your application for <strong>${job.title}</strong> at <strong>${job.company}</strong> has been <strong>accepted</strong>.</p>`
+        : `<p>Hi ${candidate.name},</p><p>Thank you for applying for <strong>${job.title}</strong> at <strong>${job.company}</strong>. After careful review, we regret to inform you that your application has not been selected at this time.</p>`;
+
+    await sendEmail({ to: candidate.email, subject, html }).catch(() => {});
 
     res.status(200).json({
         message: `Application ${status} successfully`,
