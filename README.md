@@ -42,6 +42,17 @@ npm run dev
 | GET | /api/jobs/profile | candidate | Get my profile |
 | PUT | /api/jobs/profile | candidate | Update my profile |
 
+### Applications
+| Method | Route | Access | Description |
+|--------|-------|--------|-------------|
+| POST | /api/applications/apply/:jobId | candidate | Apply to a job |
+| DELETE | /api/applications/withdraw/:applicationId | candidate | Withdraw application |
+| GET | /api/applications/my-applications | candidate | Get all my applications |
+| POST | /api/applications/save/:jobId | candidate | Save a job |
+| GET | /api/applications/saved-jobs | candidate | Get all saved jobs |
+| GET | /api/applications/job/:jobId/applicants | recruiter | View applicants for a job |
+| PUT | /api/applications/:applicationId/status | recruiter | Accept or reject application |
+
 ## Progress
 - [x] Project setup & DB connection
 - [x] User model
@@ -50,5 +61,6 @@ npm run dev
 - [x] Job model + Job CRUD
 - [x] Application model
 - [x] Candidate profile (get / update)
-- [ ] Applications (apply, withdraw, save)
+- [x] Applications (apply, withdraw, save, recruiter views)
+- [ ] Email notifications
 - [ ] Admin panel
