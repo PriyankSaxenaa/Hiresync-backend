@@ -53,6 +53,13 @@ npm run dev
 | GET | /api/applications/job/:jobId/applicants | recruiter | View applicants for a job |
 | PUT | /api/applications/:applicationId/status | recruiter | Accept or reject application |
 
+### Admin
+| Method | Route | Access | Description |
+|--------|-------|--------|-------------|
+| GET | /api/admin/users | admin | Get all users |
+| DELETE | /api/admin/users/:id | admin | Delete a user |
+| GET | /api/admin/jobs | admin | Get all jobs |
+
 ## Progress
 - [x] Project setup & DB connection
 - [x] User model
@@ -62,5 +69,5 @@ npm run dev
 - [x] Application model
 - [x] Candidate profile (get / update)
 - [x] Applications (apply, withdraw, save, recruiter views)
-- [ ] Email notifications
-- [ ] Admin panel
+- [x] Email notifications
+- [x] Admin panel
