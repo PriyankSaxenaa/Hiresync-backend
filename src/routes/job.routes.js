@@ -1,6 +1,8 @@
 const express = require('express');
 const jobController = require('../controllers/job.controller');
 const candidateController = require('../controllers/candidate.controller');
+const { createJobValidator } = require('../validators/job.validator');
+const validate = require('../middlewares/validate');
 const { asyncHandler } = require('../middlewares/errorHandler');
 const router = express.Router();
 const authMiddleware = require('../middlewares/auth.middleware');
@@ -14,7 +16,7 @@ router.get('/', authMiddleware.authUser, asyncHandler(jobController.getAllJobs))
 router.get('/:id', authMiddleware.authUser, asyncHandler(jobController.getJobById));
 
 // Recruiter
-router.post('/', authMiddleware.authRecruiter, asyncHandler(jobController.createJob));
+router.post('/', authMiddleware.authRecruiter, createJobValidator, validate, asyncHandler(jobController.createJob));
 router.put('/:id', authMiddleware.authRecruiter, asyncHandler(jobController.updateJob));
 router.delete('/:id', authMiddleware.authRecruiter, asyncHandler(jobController.deleteJob));
 router.get('/recruiter/my-jobs', authMiddleware.authRecruiter, asyncHandler(jobController.getMyJobs));
