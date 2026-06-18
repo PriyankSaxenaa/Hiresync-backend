@@ -101,17 +101,16 @@ npm run dev
 - [x] Email notifications
 - [x] Admin panel
 ### Phase 2.1 — Error Handling Infrastructure
-Phase 1 — 
 - [x] `asyncHandler` — wraps all controllers, auto-catches async errors
 - [x] `errorHandler` — global error handler (Mongoose, JWT, Multer, duplicates)
 - [x] `validate` middleware — returns structured field-level errors
 
-### Phase 2.1 — Input Validators ✅
+### Phase 2.2 — Input Validators ✅
 - [x] `auth.validator.js` — register & login rules
 - [x] `job.validator.js` — create job rules
 - [x] Validators plugged into auth and job routes
 
-### Phase 2.2 — Resume Parser
+### Phase 2.3 — Resume Parser
 - [ ] Cloudinary config
 - [ ] Multer config (PDF only, 5MB limit)
 - [ ] Skill extractor utility
