@@ -29,7 +29,22 @@ async function createJob(req, res) {
 }
 
 async function updateJob(req, res) {
-    const job = await jobModel.findOne({ _id: id, recruiter: req.user.id });}
+    const { id } = req.params;
+
+    // make sure recruiter can only edit their own jobs
+    const job = await jobModel.findOne({ _id: id, recruiter: req.user.id });
+
+    if (!job) {
+        return res.status(404).json({ message: 'Job not found or you are not authorized' });
+    }
+
+    const updatedJob = await jobModel.findByIdAndUpdate(id, req.body, { new: true });
+
+    res.status(200).json({
+        message: 'Job updated successfully',
+        job: updatedJob
+    });
+}
 
 async function deleteJob(req, res) {
     const { id } = req.params;
@@ -97,18 +112,9 @@ async function getAllJobs(req, res) {
 }
 
 async function getJobById(req, res) {
-    const { id } = req.params;
 
-    const job = await jobModel.findById(id).populate('recruiter', 'name email');
+    throw new Error("Testing asyncHandler");
 
-    if (!job) {
-        return res.status(404).json({ message: 'Job not found' });
-    }
-
-    res.status(200).json({
-        message: 'Job fetched successfully',
-        job
-    });
 }
 
 module.exports = { createJob, updateJob, deleteJob, getMyJobs, getAllJobs, getJobById };
