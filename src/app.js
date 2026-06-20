@@ -5,6 +5,7 @@ const jobRoutes = require('./routes/job.routes');
 const applicationRoutes = require('./routes/application.routes');
 const adminRoutes = require('./routes/admin.routes');
 const resumeRoutes = require('./routes/resume.routes');
+const recommendationRoutes = require('./routes/recommendation.routes');
 const { errorHandler } = require('./middlewares/errorHandler');
 
 const app = express();
@@ -16,6 +17,7 @@ app.use('/api/jobs', jobRoutes);
 app.use('/api/applications', applicationRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/resume', resumeRoutes);
+app.use('/api/recommendations', recommendationRoutes);
 
 // keep this at the bottom — express identifies error handlers by the 4 args
 app.use(errorHandler);
