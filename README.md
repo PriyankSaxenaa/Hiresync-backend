@@ -111,8 +111,8 @@ npm run dev
 - [x] Validators plugged into auth and job routes
 
 ### Phase 2.3 — Resume Parser
-- [ ] Cloudinary config
-- [ ] Multer config (PDF only, 5MB limit)
-- [ ] Skill extractor utility
-- [ ] Resume controller (upload → parse → extract skills)
-- [ ] Resume route (`POST /api/resume/upload`)
+- [x] Cloudinary config
+- [x] Multer config (PDF only, 5MB limit)
+- [x] Skill extractor utility
+- [x] Resume controller (upload → parse → extract skills)
+- [x] Resume route (`POST /api/resume/upload`)
