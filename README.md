@@ -87,6 +87,34 @@ npm run dev
 | GET | /api/tpo/students | tpo | List all students of this TPO's college |
 | GET | /api/tpo/students/:id | tpo | Get a single student's details |
 
+### TPO — Student Groups
+| Method | Route | Access | Description | Validated |
+|--------|-------|--------|-------------|-----------|
+| POST | /api/tpo/groups | tpo | Create a group with filters `{ minCgpa, branches[], skills[] }` → auto-populates matching students | ✅ name |
+| GET | /api/tpo/groups | tpo | List all groups of this college | — |
+| GET | /api/tpo/groups/:id | tpo | Get a group + its student list | — |
+| PUT | /api/tpo/groups/:id | tpo | Update filters → re-runs the query and re-populates the group | — |
+
+### TPO — Campus Drives
+| Method | Route | Access | Description | Validated |
+|--------|-------|--------|-------------|-----------|
+| POST | /api/tpo/drives | tpo | Post a drive to a group → notifies every student in it (DB notification + Socket.IO). Requires a verified college | ✅ company, title, targetGroup, deadline |
+| GET | /api/tpo/drives | tpo | List all drives of this college | — |
+| GET | /api/tpo/drives/:id | tpo | Get a single drive's details | — |
+| PUT | /api/tpo/drives/:id | tpo | Update drive details | — |
+| PUT | /api/tpo/drives/:id/status | tpo | Manually set status (`upcoming` / `ongoing` / `closed`) | — |
+
+### Campus (student side)
+| Method | Route | Access | Description |
+|--------|-------|--------|-------------|
+| POST | /api/campus/drives/:id/respond | candidate | Respond `interested` / `not_interested` to a drive — blocked once closed or past the deadline |
+
+### Notifications
+| Method | Route | Access | Description |
+|--------|-------|--------|-------------|
+| GET | /api/notifications | any logged-in user | List my notifications (newest first) with an unread count |
+| PUT | /api/notifications/read | any logged-in user | Mark all (or specific `ids`) as read |
+
 
 ## How Job Recommendations Work
 
@@ -146,6 +174,18 @@ None. Phase 3.1 and 3.2 reuse the existing DB connection and auth setup — no n
 6. **Batch email sending:** all queued credential emails are sent through `sendBatchEmails(messages, chunkSize = 50)`, which chunks the list and fires each chunk with `Promise.allSettled` so one bad address never blocks the rest. The response includes a `{ total, sent, failed }` summary.
 7. The endpoint responds with a `summary` (totalRows / created / linked / skipped / errors) and an `emails` summary in one shot.
 
+## How Student Groups & Campus Drives Work
+
+1. A TPO creates a `StudentGroup` with optional filters (`minCgpa`, `branches[]`, `skills[]`). The group is **auto-populated** at creation time by running those filters against the college's imported students — no manual student picking.
+2. Updating a group's filters (`PUT /api/tpo/groups/:id`) re-runs the query and re-populates the `students` list from scratch.
+3. A TPO posts a `CampusDrive` to one of their groups (`POST /api/tpo/drives`). The college must already be admin-verified, or the request is rejected.
+4. On posting, every student currently in the target group gets:
+   - a `Notification` document (visible via `GET /api/notifications`), and
+   - a realtime `drive:new` event pushed over Socket.IO straight to their personal room (`user:<id>`), plus a broadcast to the whole college room (`college:<id>`).
+5. Students connect to Socket.IO using the same JWT as the REST API (via the cookie or an explicit `auth.token`), and are auto-joined to their personal + college rooms on connect.
+6. A student responds to a drive with `POST /api/campus/drives/:id/respond`. The response is **locked** once the drive's deadline has passed or its status was manually set to `closed` — both checks happen before the response is recorded.
+7. Responses are upserted (one per student per drive), so a student can change their mind any time before the deadline.
+
 ## Validation Rules
 
 ### Register (`POST /api/auth/register`)
@@ -178,6 +218,22 @@ None. Phase 3.1 and 3.2 reuse the existing DB connection and auth setup — no n
 | name | Required, min 2 characters |
 | address | Optional |
 | website | Optional, must be a valid URL if provided |
+
+### Create Group (`POST /api/tpo/groups`)
+| Field | Rule |
+|-------|------|
+| name | Required |
+| filters | Optional, must be an object if provided |
+
+### Create Drive (`POST /api/tpo/drives`)
+| Field | Rule |
+|-------|------|
+| company | Required |
+| title | Required |
+| description | Optional |
+| jd | Optional |
+| targetGroup | Required, must be a valid group id |
+| deadline | Required, valid ISO8601 date |
 
 ## Progress
 
@@ -222,13 +278,13 @@ None. Phase 3.1 and 3.2 reuse the existing DB connection and auth setup — no n
 - [x] Recommendation route (`GET /api/recommendations/candidates/:jobId`) — recruiter-only, scoped to jobs they own
 - [x] No schema or env changes required — reuses existing `User.skills` and `Job.skillsRequired`
 
-
 ### PROJECT UPGRADE ++
 
 
 ### Phase 4:- Adding college and their TPO for posting Incampus Placements
 
 ## Phase 4.1 — Campus Placement Module ✅
+
 
 - [x] `College` model — `name`, `address`, `website`, `isVerified`, `tpo` (owner ref)
 - [x] `User` model extended — `tpo` role + on-campus fields (`college`, `rollNo`, `branch`, `cgpa`, `isImported`)
@@ -238,3 +294,15 @@ None. Phase 3.1 and 3.2 reuse the existing DB connection and auth setup — no n
 - [x] Excel/CSV student import (`POST /api/tpo/import`) — `xlsx` parsing, tolerant headers, duplicate `roll_no`/`email` handling, temp passwords for new accounts
 - [x] Batch email sending (`sendBatchEmails`) — credential emails sent in chunks of 50 via `Promise.allSettled`
 - [x] `GET /api/tpo/students`, `GET /api/tpo/students/:id` — view imported students for the TPO's college
+
+## Phase 4.2 — Campus Drives & Realtime Notifications ✅
+
+- [x] `StudentGroup` model — `name`, `filters { minCgpa, branches[], skills[] }`, auto-populated `students[]`
+- [x] Group auto-filter population — `buildMatchQuery()` runs on create *and* on every filter update
+- [x] `CampusDrive` model — `company`, `title`, `description`, `jd`, `targetGroup`, `deadline`, `status`
+- [x] `Notification` model + inbox (`GET /api/notifications`, `PUT /api/notifications/read`)
+- [x] Socket.IO bootstrapped (`config/socket.js`) — JWT-authenticated handshake, personal (`user:<id>`) + college (`college:<id>`) rooms
+- [x] Post drive to group (`POST /api/tpo/drives`) — requires a verified college, fans out a DB notification + `drive:new` socket event to every student in the target group
+- [x] TPO drive management — list / get / update drive, manual status toggle (`upcoming` / `ongoing` / `closed`)
+- [x] Student response with deadline lock (`POST /api/campus/drives/:id/respond`) — eligibility-checked against group membership, rejected once the deadline passes or status is `closed`, upserted so responses are editable until then
+- [x] `server.js` now wraps Express in a raw `http` server so Socket.IO can share the same port

@@ -8,6 +8,8 @@ const resumeRoutes = require('./routes/resume.routes');
 const recommendationRoutes = require('./routes/recommendation.routes');
 const collegeRoutes = require('./routes/college.routes');
 const tpoRoutes = require('./routes/tpo.routes');
+const campusRoutes = require('./routes/campus.routes');
+const notificationRoutes = require('./routes/notification.routes');
 const { errorHandler } = require('./middlewares/errorHandler');
 
 const app = express();
@@ -25,6 +27,8 @@ app.use('/api/recommendations', recommendationRoutes);
 // ── On-campus ────────────────────────────────────────────────────────────────────
 app.use('/api/college', collegeRoutes);
 app.use('/api/tpo', tpoRoutes);
+app.use('/api/campus', campusRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // keep this at the bottom — express identifies error handlers by the 4 args
 app.use(errorHandler);
