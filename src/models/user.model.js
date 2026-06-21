@@ -16,12 +16,36 @@ const userSchema = new mongoose.Schema({
     },
     role: {
         type: String,
-        enum: ['candidate', 'recruiter', 'admin'],
+        enum: ['candidate', 'recruiter', 'admin', 'tpo'],
         default: 'candidate'
     },
     profilePhoto: {
         type: String,
         default: ''
+    },
+
+    // ── On-campus fields (set when a TPO imports the student via Excel) ────────────
+    // null / empty for off-campus / self-registered candidates
+    college: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'College',
+        default: null
+    },
+    rollNo: {
+        type: String,        // unique per college, comes from the sheet — locked
+        default: ''
+    },
+    branch: {
+        type: String,        // from the sheet — locked
+        default: ''
+    },
+    cgpa: {
+        type: Number,        // from the sheet — locked
+        default: null
+    },
+    isImported: {
+        type: Boolean,       // true if added through an Excel import
+        default: false
     },
     resumeUrl: {
         type: String,

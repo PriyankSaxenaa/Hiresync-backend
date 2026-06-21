@@ -72,6 +72,22 @@ npm run dev
 | GET | /api/recommendations/jobs | candidate | Get jobs ranked by skill match score |
 | GET | /api/recommendations/candidates/:jobId | recruiter | Get candidates ranked by skill match score for own job |
 
+### College
+| Method | Route | Access | Description | Validated |
+|--------|-------|--------|-------------|-----------|
+| POST | /api/college/register | tpo | Register your college (starts unverified, one per TPO) | ✅ name, address, website |
+| GET | /api/college | admin | List all colleges | — |
+| PUT | /api/college/:id/verify | admin | Verify a college so its TPO can operate | — |
+| GET | /api/college/:id | any logged-in user | Get a college's details | — |
+
+### TPO — Student Import
+| Method | Route | Access | Description |
+|--------|-------|--------|-------------|
+| POST | /api/tpo/import | tpo | Upload Excel/CSV (field `file`) → bulk create/link students, batch-email credentials in chunks of 50 |
+| GET | /api/tpo/students | tpo | List all students of this TPO's college |
+| GET | /api/tpo/students/:id | tpo | Get a single student's details |
+
+
 ## How Job Recommendations Work
 
 1. Candidate's `skills` come from their profile (set manually or auto-filled by the Resume Parser).
@@ -117,6 +133,19 @@ None. Phase 3.1 and 3.2 reuse the existing DB connection and auth setup — no n
    - As a different recruiter / without owning the job → expect `404`.
    - As the owning recruiter → expect `200` with `recommendations` of matching candidates, sorted by `matchScore`.
 
+## How the Excel/CSV Student Import Works
+
+1. A TPO must register and have a verified or unverified college on file first — `POST /api/college/register` links the college to the requesting TPO (`one college per TPO`).
+2. `POST /api/tpo/import` accepts a single Excel (`.xlsx`/`.xls`) or CSV file under the `file` field, parsed in-memory with `xlsx` (no disk writes).
+3. Each row is read tolerantly — header casing/spacing variants like `roll_no`, `Roll No`, `RollNo` are all accepted via a `pick()` helper.
+4. Rows missing `name`, `email`, or `roll_no` are skipped and reported in `summary.errors` with the offending row number.
+5. **Duplicate handling:**
+   - Duplicate `roll_no` *within the same sheet* is skipped and reported.
+   - An `email` that already exists in the database is **linked** to the importing college (not recreated) — their `rollNo`/`branch`/`cgpa` are updated and skills are merged, but no new account or email is sent.
+   - A brand-new `email` gets a new candidate account with a random temporary password and is queued for a credentials email.
+6. **Batch email sending:** all queued credential emails are sent through `sendBatchEmails(messages, chunkSize = 50)`, which chunks the list and fires each chunk with `Promise.allSettled` so one bad address never blocks the rest. The response includes a `{ total, sent, failed }` summary.
+7. The endpoint responds with a `summary` (totalRows / created / linked / skipped / errors) and an `emails` summary in one shot.
+
 ## Validation Rules
 
 ### Register (`POST /api/auth/register`)
@@ -125,7 +154,7 @@ None. Phase 3.1 and 3.2 reuse the existing DB connection and auth setup — no n
 | name | Required, min 2 characters |
 | email | Required, valid email format |
 | password | Required, min 6 characters |
-| role | Optional, must be `candidate` or `recruiter` |
+| role | Optional, must be `candidate`, `recruiter` or `tpo` |
 
 ### Login (`POST /api/auth/login`)
 | Field | Rule |
@@ -142,6 +171,13 @@ None. Phase 3.1 and 3.2 reuse the existing DB connection and auth setup — no n
 | location | Required |
 | skillsRequired | Required, must be array with at least 1 item |
 | applicationDeadline | Required, valid ISO8601 date |
+
+### Register College (`POST /api/college/register`)
+| Field | Rule |
+|-------|------|
+| name | Required, min 2 characters |
+| address | Optional |
+| website | Optional, must be a valid URL if provided |
 
 ## Progress
 
@@ -185,3 +221,20 @@ None. Phase 3.1 and 3.2 reuse the existing DB connection and auth setup — no n
 - [x] Recruiter controller (`getRecommendedCandidates`) — reuses `matchScore` to rank candidates against a job's `skillsRequired`
 - [x] Recommendation route (`GET /api/recommendations/candidates/:jobId`) — recruiter-only, scoped to jobs they own
 - [x] No schema or env changes required — reuses existing `User.skills` and `Job.skillsRequired`
+
+
+### PROJECT UPGRADE ++
+
+
+### Phase 4:- Adding college and their TPO for posting Incampus Placements
+
+## Phase 4.1 — Campus Placement Module ✅
+
+- [x] `College` model — `name`, `address`, `website`, `isVerified`, `tpo` (owner ref)
+- [x] `User` model extended — `tpo` role + on-campus fields (`college`, `rollNo`, `branch`, `cgpa`, `isImported`)
+- [x] `authTPO` middleware — restricts TPO-only routes; `authUser` updated to recognize `tpo`
+- [x] College registration (`POST /api/college/register`) — one college per TPO, starts unverified
+- [x] Admin verification (`GET /api/college`, `PUT /api/college/:id/verify`) — admin-only, flips `isVerified`
+- [x] Excel/CSV student import (`POST /api/tpo/import`) — `xlsx` parsing, tolerant headers, duplicate `roll_no`/`email` handling, temp passwords for new accounts
+- [x] Batch email sending (`sendBatchEmails`) — credential emails sent in chunks of 50 via `Promise.allSettled`
+- [x] `GET /api/tpo/students`, `GET /api/tpo/students/:id` — view imported students for the TPO's college

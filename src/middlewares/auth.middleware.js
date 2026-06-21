@@ -78,7 +78,7 @@ async function authUser(req, res, next) {
 
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        if (!['candidate', 'recruiter', 'admin'].includes(decoded.role)) {
+        if (!['candidate', 'recruiter', 'admin', 'tpo'].includes(decoded.role)) {
             return res.status(403).json({ message: 'Unauthorized Access' });
         }
         req.user = decoded;
@@ -88,4 +88,26 @@ async function authUser(req, res, next) {
     }
 }
 
-module.exports = { authCandidate, authRecruiter, authAdmin, authUser };
+// only TPOs get through (they manage their college's students & drives)
+async function authTPO(req, res, next) {
+    const token = req.cookies.token;
+
+    if (!token) {
+        return res.status(401).json({
+            message: 'Unauthorized'
+        });
+    }
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        if (decoded.role !== 'tpo') {
+            return res.status(403).json({ message: 'Only TPOs can perform this action' });
+        }
+        req.user = decoded;
+        next();
+    } catch (err) {
+        return res.status(401).json({ message: 'Unauthorized' });
+    }
+}
+
+module.exports = { authCandidate, authRecruiter, authAdmin, authUser, authTPO };
