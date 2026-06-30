@@ -17,7 +17,7 @@ const registerValidator = [
 
     body('role')
         .optional()
-        .isIn(['candidate', 'recruiter','tpo']).withMessage('Role must be candidate or recruiter'),
+        .isIn(['candidate', 'recruiter', 'tpo']).withMessage('Role must be candidate, recruiter or tpo'),
 ];
 
 const loginValidator = [

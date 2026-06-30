@@ -1,22 +1,14 @@
 const express = require('express');
-const jobController = require('../controllers/job.controller');
-const candidateController = require('../controllers/candidate.controller');
-const { asyncHandler } = require('../middlewares/errorHandler');
 const router = express.Router();
+const adminController = require('../controllers/admin.controller');
+const { asyncHandler } = require('../middlewares/errorHandler');
 const authMiddleware = require('../middlewares/auth.middleware');
 
-// Candidate profile
-router.get('/profile', authMiddleware.authCandidate, asyncHandler(candidateController.getProfile));
-router.put('/profile', authMiddleware.authCandidate, asyncHandler(candidateController.updateProfile));
+// every admin route requires an admin
+router.use(authMiddleware.authAdmin);
 
-// Public (any logged-in user)
-router.get('/', authMiddleware.authUser, asyncHandler(jobController.getAllJobs));
-router.get('/:id', authMiddleware.authUser, asyncHandler(jobController.getJobById));
-
-// Recruiter
-router.post('/', authMiddleware.authRecruiter, asyncHandler(jobController.createJob));
-router.put('/:id', authMiddleware.authRecruiter, asyncHandler(jobController.updateJob));
-router.delete('/:id', authMiddleware.authRecruiter, asyncHandler(jobController.deleteJob));
-router.get('/recruiter/my-jobs', authMiddleware.authRecruiter, asyncHandler(jobController.getMyJobs));
+router.get('/users', asyncHandler(adminController.getAllUsers));
+router.delete('/users/:id', asyncHandler(adminController.deleteUser));
+router.get('/jobs', asyncHandler(adminController.getAllJobsAdmin));
 
 module.exports = router;

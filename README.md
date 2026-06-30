@@ -2,6 +2,11 @@
 
 A REST API built with Node.js, Express and MongoDB.
 
+It covers two worlds in one platform:
+
+- **Off-campus** — recruiters post jobs, candidates self-register, upload resumes (skills auto-extracted), get match-scored recommendations, apply, and get accept/reject notifications.
+- **On-campus** — colleges register, an admin verifies them, a TPO imports students from Excel/CSV, builds filtered student groups, posts campus drives to a group, students respond before a deadline, and the TPO downloads a PDF report and views placement analytics.
+
 ## Stack
 - Node.js + Express
 - MongoDB + Mongoose
@@ -11,6 +16,8 @@ A REST API built with Node.js, Express and MongoDB.
 - Redis (ioredis) for optional caching
 - Socket.IO for realtime notifications
 - pdfkit for PDF reports
+- Cloudinary + Multer (resume upload), pdf-parse (skill extraction)
+- xlsx (Excel/CSV student import)
 
 ## Setup
 
@@ -20,6 +27,25 @@ cp .env.example .env
 # fill in your values in .env
 npm run dev
 ```
+
+### Environment variables
+| Var | Required | Notes |
+|-----|----------|-------|
+| `PORT` | no | defaults to 3000 |
+| `MONGO_URI` | **yes** | MongoDB connection string |
+| `JWT_SECRET` | **yes** | signs the auth cookie |
+| `CLIENT_URL` | no | Socket.IO CORS origin (defaults to `*`) |
+| `REDIS_URL` | no | if Redis is down, caching simply no-ops |
+| `EMAIL_SERVICE` / `EMAIL_USER` / `EMAIL_PASS` | for emails | Nodemailer credentials |
+| `CLOUDINARY_*` | for resume upload | Cloudinary credentials |
+
+## Roles
+| Role | Can do |
+|------|--------|
+| `admin` | verify colleges, manage users/jobs |
+| `tpo` | belongs to one college: import students, build groups, run drives |
+| `recruiter` | post off-campus jobs, manage applications |
+| `candidate` | imported (on-campus) or self-registered (off-campus) |
 
 ## API Endpoints
 
@@ -35,7 +61,7 @@ npm run dev
 |--------|-------|--------|-------------|-----------|
 | GET | /api/jobs | any logged-in user | Browse all jobs. **Cached 60s** per filter/page combo | — |
 | GET | /api/jobs/:id | any logged-in user | Get single job. **Cached 60s** | — |
-| GET | /api/jobs/recommended | candidate | Jobs ranked by skill match, same as `/api/recommendations/jobs`. **Cached 120s** per user | — |
+| GET | /api/jobs/recommended | candidate | Jobs ranked by skill match, spec-aligned alias of `/api/recommendations/jobs`. **Cached 120s** per user | — |
 | POST | /api/jobs | recruiter | Post a new job — invalidates the job-list & recommendation caches | ✅ title, company, description, location, skills, deadline |
 | PUT | /api/jobs/:id | recruiter | Update own job — invalidates that job's cache | — |
 | DELETE | /api/jobs/:id | recruiter | Delete own job — invalidates that job's cache | — |
@@ -50,13 +76,13 @@ npm run dev
 ### Applications
 | Method | Route | Access | Description |
 |--------|-------|--------|-------------|
-| POST | /api/applications/apply/:jobId | candidate | Apply to a job |
+| POST | /api/applications/apply/:jobId | candidate | Apply to a job — notifies the recruiter |
 | DELETE | /api/applications/withdraw/:applicationId | candidate | Withdraw application |
 | GET | /api/applications/my-applications | candidate | Get all my applications |
 | POST | /api/applications/save/:jobId | candidate | Save a job |
 | GET | /api/applications/saved-jobs | candidate | Get all saved jobs |
 | GET | /api/applications/job/:jobId/applicants | recruiter | View applicants for a job |
-| PUT | /api/applications/:applicationId/status | recruiter | Accept or reject application |
+| PUT | /api/applications/:applicationId/status | recruiter | Accept or reject application — notifies the candidate via email + Socket.IO |
 
 ### Admin
 | Method | Route | Access | Description |
@@ -73,7 +99,7 @@ npm run dev
 ### Recommendations
 | Method | Route | Access | Description |
 |--------|-------|--------|-------------|
-| GET | /api/recommendations/jobs | candidate | Get jobs ranked by skill match score |
+| GET | /api/recommendations/jobs | candidate | Get jobs ranked by skill match score (legacy route, kept mounted; same data as `/api/jobs/recommended`) |
 | GET | /api/recommendations/candidates/:jobId | recruiter | Get candidates ranked by skill match score for own job |
 
 ### College
@@ -91,6 +117,8 @@ npm run dev
 | GET | /api/tpo/students | tpo | List all students of this TPO's college |
 | GET | /api/tpo/students/:id | tpo | Get a single student's details |
 
+Sheet columns: `name | email | roll_no | branch | cgpa | skills` (`skills` comma-separated).
+
 ### TPO — Student Groups
 | Method | Route | Access | Description | Validated |
 |--------|-------|--------|-------------|-----------|
@@ -98,6 +126,8 @@ npm run dev
 | GET | /api/tpo/groups | tpo | List all groups of this college | — |
 | GET | /api/tpo/groups/:id | tpo | Get a group + its student list | — |
 | PUT | /api/tpo/groups/:id | tpo | Update filters → re-runs the query and re-populates the group | — |
+
+Filter semantics: `cgpa ≥ minCgpa`, `branch ∈ branches` (case-insensitive), student has **all** listed `skills`.
 
 ### TPO — Campus Drives
 | Method | Route | Access | Description | Validated |
@@ -108,6 +138,7 @@ npm run dev
 | PUT | /api/tpo/drives/:id | tpo | Update drive details | — |
 | PUT | /api/tpo/drives/:id/status | tpo | Manually set status (`upcoming` / `ongoing` / `closed`) before the deadline | — |
 | GET | /api/tpo/drives/:id/report | tpo | Download a PDF report of every targeted student's response |
+| GET | /api/tpo/analytics | tpo | College placement stats: drives, responses, interested %, branch breakdown, top skills |
 
 ### Campus (student side)
 | Method | Route | Access | Description |
@@ -123,10 +154,16 @@ npm run dev
 | GET | /api/notifications | any logged-in user | List my notifications (newest first) with an unread count |
 | PUT | /api/notifications/read | any logged-in user | Mark all (or specific `ids`) as read |
 
+### Analytics
+| Method | Route | Access | Description |
+|--------|-------|--------|-------------|
+| GET | /api/analytics/dashboard | recruiter | Hiring funnel: jobs posted, total applications, accepted/rejected/pending breakdown |
+| GET | /api/tpo/analytics | tpo | College placement stats: drives, responses, interested %, branch breakdown, top skills |
+
 ## How Job Recommendations Work
 
 1. Candidate's `skills` come from their profile (set manually or auto-filled by the Resume Parser).
-2. `GET /api/recommendations/jobs` fetches every job and compares its `skillsRequired` against the candidate's `skills` (case-insensitive).
+2. `GET /api/jobs/recommended` (and the legacy `GET /api/recommendations/jobs`) fetches every job and compares its `skillsRequired` against the candidate's `skills` (case-insensitive).
 3. `matchScore` = `(matched skills / total required skills) * 100`, rounded to the nearest whole number.
 4. Jobs are sorted highest match → lowest, and jobs with a 0% match are filtered out.
 5. Each recommendation includes the `job`, its `matchScore`, the `matchedSkills`, and the `missingSkills` the candidate would need to be a full match.
@@ -165,9 +202,9 @@ npm run dev
 6. A student responds to a drive with `POST /api/campus/drives/:id/respond`. The response is **locked** once the drive's deadline has passed or its status was manually set to `closed` — both checks happen before the response is recorded.
 7. Responses are upserted (one per student per drive), so a student can change their mind any time before the deadline.
 
-## Drive Status, Profile Completion, PDF Reports & Caching (Day 3)
+## Drive Status, Profile Completion, PDF Reports & Caching
 
-**Auto-managed drive status** — `utils/driveStatus.js` is now the single source of truth:
+**Auto-managed drive status** — `utils/driveStatus.js` is the single source of truth:
 - `effectiveStatus(drive)`: once `deadline` has passed, a drive always reads as `closed`, no matter what's stored. Before the deadline, the TPO's manually-set status (`upcoming` / `ongoing`) is trusted.
 - `isDriveOpen(drive)`: used to gate `POST /api/campus/drives/:id/respond` — the same rule the feed displays is the rule that locks responses.
 
@@ -186,7 +223,20 @@ npm run dev
 | `GET /api/jobs/recommended` | 120s | any job create (broad invalidation) |
 | `GET /api/campus/drives` | 60s, per college+user | a drive being posted/updated/status-changed for that college |
 
-A `X-Cache: HIT`/`MISS` response header is set on every cached route so you can see it working.
+A `X-Cache: HIT`/`MISS` response header is set on every cached route so you can see it working. If Redis is unavailable, every request is a cache miss and the API behaves normally.
+
+## Real-time (Socket.IO)
+
+Connect with the JWT cookie, or `io(url, { auth: { token } })`. Each socket joins a personal room `user:<id>` and (for on-campus users) `college:<collegeId>`.
+
+| Event | To | When |
+|-------|----|------|
+| `drive:new` | group students + college room | a drive is posted |
+| `drive:response:confirmed` | the responding student | response recorded |
+| `application:new` | the recruiter | a candidate applies |
+| `application:status` | the candidate | recruiter accepts/rejects |
+
+Every realtime event is backed by a persisted `Notification` document, so nothing is lost if the client wasn't connected — `GET /api/notifications` always has the full history.
 
 ## Validation Rules
 
@@ -236,6 +286,24 @@ A `X-Cache: HIT`/`MISS` response header is set on every cached route so you can 
 | jd | Optional |
 | targetGroup | Required, must be a valid group id |
 | deadline | Required, valid ISO8601 date |
+
+## Project Structure
+```
+src/
+├── app.js                 # express app + route mounting
+├── config/                # cloudinary, multer (pdf + excel), redis, socket
+├── controllers/           # auth, job, application, recommendation, resume, candidate,
+│                          # admin, college, tpo, campus, notification, analytics
+├── db/db.js               # mongoose connection
+├── middlewares/           # auth (incl. authTPO), cache, validate, errorHandler
+├── models/                # user, job, application, college, studentGroup,
+│                          # campusDrive, driveResponse, notification
+├── routes/                # one router per domain
+├── utils/                 # matchScore, skillExtractor, sendEmail (+batch),
+│                          # cacheKeys, generatePDF, driveStatus
+└── validators/            # auth, job, college, drive
+server.js                  # http server + Socket.IO + Redis bootstrap
+```
 
 ## Progress
 
@@ -315,12 +383,28 @@ A `X-Cache: HIT`/`MISS` response header is set on every cached route so you can 
 - [x] Fixed a leftover stub in `getJobById` (`GET /api/jobs/:id` previously always threw) so the now-cached route actually works
 - [x] `server.js` connects Redis at boot alongside Mongo and Socket.IO
 
-#### Phase 4.4:- Full Socket.IO ✅
-
-- [x] **Drive announcements** (`drive:new`) — carried over from Day 2, still fires on `POST /api/tpo/drives`
+### Phase 4.4 — Full Socket.IO ✅
+- [x] **Drive announcements** (`drive:new`) — carried over from Phase 4.2, still fires on `POST /api/tpo/drives`
 - [x] **Response confirmations** (`drive:response:confirmed`) — `POST /api/campus/drives/:id/respond` now also creates a `Notification` and pings the student in realtime once their response is saved
 - [x] **Off-campus apply notifications** (`application:new`) — `POST /api/applications/apply/:jobId` notifies + pings the recruiter who owns the job
 - [x] **Off-campus status notifications** (`application:status`) — `PUT /api/applications/:applicationId/status` notifies + pings the candidate when accepted/rejected
 - [x] Every realtime event is backed by a persisted `Notification` document, so nothing is lost if the client wasn't connected — `GET /api/notifications` always has the full history
 
-A note on scope: the final codebase doesn't implement a distinct "shortlist" status or event separate from the existing accept/reject flow — `application:status` already covers the off-campus accepted/rejected case end to end, so that's what's wired here rather than inventing a parallel mechanism.
+A note on scope: the codebase doesn't implement a distinct "shortlist" status or event separate from the existing accept/reject flow — `application:status` already covers the off-campus accepted/rejected case end to end, so that's what's wired here rather than inventing a parallel mechanism.
+
+## Phase 5 — Analytics, Spec Alignment & Final Polish ✅
+- [x] Recruiter hiring-funnel analytics (`GET /api/analytics/dashboard`) — jobs posted, total applications, accepted/rejected/pending breakdown, recruiter-scoped
+- [x] TPO placement analytics (`GET /api/tpo/analytics`) — drive count, response totals, interested %, branch-wise breakdown, top requested skills, college-scoped
+- [x] `GET /api/jobs/recommended` added as the spec-aligned alias for candidate job recommendations — same controller/logic as `GET /api/recommendations/jobs`, both routes kept mounted so neither integration breaks
+- [x] Fixed `/api/admin/*` — it was accidentally wired to duplicate the job routes instead of the admin controller; now correctly serves `GET /api/admin/users`, `DELETE /api/admin/users/:id`, `GET /api/admin/jobs`
+- [x] Environment variable table and role matrix documented for first-time setup
+- [x] Project structure and full route map consolidated into this README as the final, authoritative reference
+
+### Two pre-existing bugs fixed along the way
+Both sat directly in the path of newly-built features, so they were fixed rather than worked around:
+1. `GET /api/jobs/:id` was a stub that always threw — fixed when Phase 4.3 added caching to it.
+2. `/api/admin/*` was accidentally wired to duplicate the job routes instead of the admin controller — fixed when Phase 5 wired up the admin overview.
+
+## Notes
+- A full live run needs MongoDB (required) plus, optionally, Redis, SMTP, and Cloudinary credentials.
+- The on-campus build added `ioredis`, `socket.io`, `xlsx`, `pdfkit` on top of the original off-campus dependency set.

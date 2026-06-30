@@ -30,4 +30,7 @@ router.put('/drives/:id', asyncHandler(tpoController.updateDrive));
 router.put('/drives/:id/status', asyncHandler(tpoController.updateDriveStatus));
 router.get('/drives/:id/report', asyncHandler(tpoController.downloadDriveReport));
 
+// ── Analytics ───────────────────────────────────────────────────────────────────
+router.get('/analytics', asyncHandler(tpoController.getTpoAnalytics));
+
 module.exports = router;

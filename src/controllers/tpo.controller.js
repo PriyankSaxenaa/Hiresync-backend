@@ -497,6 +497,55 @@ async function downloadDriveReport(req, res) {
     streamDriveReport(res, { drive, rows });
 }
 
+// ── TPO Analytics ─────────────────────────────────────────────────────────────
+
+async function getTpoAnalytics(req, res) {
+    const college = await resolveCollege(req, res);
+    if (!college) return;
+
+    const drives = await campusDriveModel.find({ college: college._id }).select('_id');
+    const driveIds = drives.map(d => d._id);
+
+    const responses = await driveResponseModel
+        .find({ drive: { $in: driveIds } })
+        .populate('candidate', 'branch skills');
+
+    const totalResponses = responses.length;
+    const interested = responses.filter(r => r.response === 'interested').length;
+
+    // branch-wise interested breakdown
+    const branchBreakdown = {};
+    // top skills among interested candidates
+    const skillCounts = {};
+
+    responses.forEach(r => {
+        if (r.response !== 'interested' || !r.candidate) return;
+        const branch = r.candidate.branch || 'Unknown';
+        branchBreakdown[branch] = (branchBreakdown[branch] || 0) + 1;
+        (r.candidate.skills || []).forEach(skill => {
+            skillCounts[skill] = (skillCounts[skill] || 0) + 1;
+        });
+    });
+
+    const topSkills = Object.entries(skillCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([skill, count]) => ({ skill, count }));
+
+    res.status(200).json({
+        message: 'TPO analytics fetched successfully',
+        analytics: {
+            drivesPosted: driveIds.length,
+            totalResponses,
+            interested,
+            notInterested: totalResponses - interested,
+            interestedPercentage: totalResponses ? Math.round((interested / totalResponses) * 100) : 0,
+            branchBreakdown,
+            topSkills
+        }
+    });
+}
+
 module.exports = {
     importStudents,
     getStudents,
@@ -510,5 +559,6 @@ module.exports = {
     getDriveById,
     updateDrive,
     updateDriveStatus,
-    downloadDriveReport
+    downloadDriveReport,
+    getTpoAnalytics
 };
