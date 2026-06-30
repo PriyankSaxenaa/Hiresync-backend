@@ -2,8 +2,10 @@ const userModel = require('../models/user.model');
 const studentGroupModel = require('../models/studentGroup.model');
 const campusDriveModel = require('../models/campusDrive.model');
 const driveResponseModel = require('../models/driveResponse.model');
+const notificationModel = require('../models/notification.model');
 
 const { effectiveStatus, isDriveOpen } = require('../utils/driveStatus');
+const { emitToUser } = require('../config/socket');
 
 // the candidate's own college + the group ids they belong to.
 // returns { college, groupIds } or null (after sending a response).
@@ -124,6 +126,18 @@ async function respondToDrive(req, res) {
         { response, respondedAt: new Date() },
         { new: true, upsert: true, setDefaultsOnInsert: true }
     );
+
+    // confirmation: DB notification + realtime socket
+    const message = `Your response (${response.replace('_', ' ')}) to ${drive.title} (${drive.company}) was recorded.`;
+    await notificationModel.create({
+        user: user._id,
+        type: 'drive',
+        message,
+        link: `/campus/drives/${drive._id}`
+    });
+    emitToUser(user._id.toString(), 'drive:response:confirmed', {
+        driveId: drive._id, response: saved.response
+    });
 
     res.status(200).json({
         message: 'Response recorded successfully',

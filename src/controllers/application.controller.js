@@ -1,7 +1,9 @@
 const applicationModel = require('../models/application.model');
 const jobModel = require('../models/job.model');
 const userModel = require('../models/user.model');
+const notificationModel = require('../models/notification.model');
 const { sendEmail } = require('../utils/sendEmail');
+const { emitToUser } = require('../config/socket');
 
 // ─── Candidate ────────────────────────────────────────────────────────────────
 
@@ -34,6 +36,17 @@ async function applyToJob(req, res) {
         subject: `Application Submitted – ${job.title} at ${job.company}`,
         html: `<p>Hi ${candidate.name},</p><p>Your application for <strong>${job.title}</strong> at <strong>${job.company}</strong> has been submitted successfully.</p>`
     }).catch(() => {}); // silent fail — don't block the response
+
+    // Realtime + stored notification to the recruiter who owns the job
+    await notificationModel.create({
+        user: job.recruiter,
+        type: 'application',
+        message: `${candidate.name} applied to your job: ${job.title}`,
+        link: `/applications/job/${job._id}/applicants`
+    });
+    emitToUser(job.recruiter.toString(), 'application:new', {
+        jobId: job._id, jobTitle: job.title, candidate: candidate.name
+    });
 
     res.status(201).json({
         message: 'Application submitted successfully',
@@ -162,6 +175,17 @@ async function updateApplicationStatus(req, res) {
         : `<p>Hi ${candidate.name},</p><p>Thank you for applying for <strong>${job.title}</strong> at <strong>${job.company}</strong>. After careful review, we regret to inform you that your application has not been selected at this time.</p>`;
 
     await sendEmail({ to: candidate.email, subject, html }).catch(() => {});
+
+    // Realtime + stored notification to the candidate
+    await notificationModel.create({
+        user: candidate._id,
+        type: 'application',
+        message: `Your application for ${job.title} at ${job.company} was ${status}.`,
+        link: `/applications/my-applications`
+    });
+    emitToUser(candidate._id.toString(), 'application:status', {
+        jobTitle: job.title, company: job.company, status
+    });
 
     res.status(200).json({
         message: `Application ${status} successfully`,

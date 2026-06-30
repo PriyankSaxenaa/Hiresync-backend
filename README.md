@@ -314,3 +314,13 @@ A `X-Cache: HIT`/`MISS` response header is set on every cached route so you can 
 - [x] Caching wired into: job list, job-by-id, recommended jobs, campus drive feed — with invalidation on every relevant write
 - [x] Fixed a leftover stub in `getJobById` (`GET /api/jobs/:id` previously always threw) so the now-cached route actually works
 - [x] `server.js` connects Redis at boot alongside Mongo and Socket.IO
+
+#### Phase 4.4:- Full Socket.IO ✅
+
+- [x] **Drive announcements** (`drive:new`) — carried over from Day 2, still fires on `POST /api/tpo/drives`
+- [x] **Response confirmations** (`drive:response:confirmed`) — `POST /api/campus/drives/:id/respond` now also creates a `Notification` and pings the student in realtime once their response is saved
+- [x] **Off-campus apply notifications** (`application:new`) — `POST /api/applications/apply/:jobId` notifies + pings the recruiter who owns the job
+- [x] **Off-campus status notifications** (`application:status`) — `PUT /api/applications/:applicationId/status` notifies + pings the candidate when accepted/rejected
+- [x] Every realtime event is backed by a persisted `Notification` document, so nothing is lost if the client wasn't connected — `GET /api/notifications` always has the full history
+
+A note on scope: the final codebase doesn't implement a distinct "shortlist" status or event separate from the existing accept/reject flow — `application:status` already covers the off-campus accepted/rejected case end to end, so that's what's wired here rather than inventing a parallel mechanism.
