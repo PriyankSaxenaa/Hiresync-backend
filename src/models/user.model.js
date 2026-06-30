@@ -47,6 +47,10 @@ const userSchema = new mongoose.Schema({
         type: Boolean,       // true if added through an Excel import
         default: false
     },
+    profileComplete: {
+        type: Boolean,       // flips true once resume + skills are present
+        default: false
+    },
     resumeUrl: {
         type: String,
         default: ''
