@@ -1,4 +1,5 @@
 const jobModel = require('../models/job.model');
+const { invalidators } = require('../utils/cacheKeys');
 
 // ── Recruiter ──────────────────────────────────────────────────────────────────
 
@@ -15,6 +16,9 @@ async function createJob(req, res) {
         applicationDeadline,
         recruiter: req.user.id
     });
+
+    // a new job invalidates the cached job lists & recommendations
+    await invalidators.jobs();
 
     res.status(201).json({
         message: 'Job created successfully',
@@ -40,6 +44,8 @@ async function updateJob(req, res) {
 
     const updatedJob = await jobModel.findByIdAndUpdate(id, req.body, { new: true });
 
+    await invalidators.job(id);
+
     res.status(200).json({
         message: 'Job updated successfully',
         job: updatedJob
@@ -56,6 +62,8 @@ async function deleteJob(req, res) {
     }
 
     await jobModel.findByIdAndDelete(id);
+
+    await invalidators.job(id);
 
     res.status(200).json({
         message: 'Job deleted successfully'
@@ -112,9 +120,18 @@ async function getAllJobs(req, res) {
 }
 
 async function getJobById(req, res) {
+    const { id } = req.params;
 
-    throw new Error("Testing asyncHandler");
+    const job = await jobModel.findById(id).populate('recruiter', 'name email');
 
+    if (!job) {
+        return res.status(404).json({ message: 'Job not found' });
+    }
+
+    res.status(200).json({
+        message: 'Job fetched successfully',
+        job
+    });
 }
 
 module.exports = { createJob, updateJob, deleteJob, getMyJobs, getAllJobs, getJobById };

@@ -3,9 +3,13 @@ const http = require('http');
 const app = require('./src/app');
 const connectDB = require('./src/db/db');
 const { initSocket } = require('./src/config/socket');
+const { connectRedis } = require('./src/config/redis');
 
 // connect to mongo first
 connectDB();
+
+// Redis is optional — if it's down the API still runs (caching just no-ops)
+connectRedis();
 
 // wrap express in a raw http server so Socket.IO can share the same port
 const server = http.createServer(app);
