@@ -8,6 +8,9 @@ A REST API built with Node.js, Express and MongoDB.
 - JWT for auth
 - Nodemailer for emails
 - express-validator for input validation
+- Redis (ioredis) for optional caching
+- Socket.IO for realtime notifications
+- pdfkit for PDF reports
 
 ## Setup
 
@@ -30,11 +33,12 @@ npm run dev
 ### Jobs
 | Method | Route | Access | Description | Validated |
 |--------|-------|--------|-------------|-----------|
-| GET | /api/jobs | any logged-in user | Browse all jobs | — |
-| GET | /api/jobs/:id | any logged-in user | Get single job | — |
-| POST | /api/jobs | recruiter | Post a new job | ✅ title, company, description, location, skills, deadline |
-| PUT | /api/jobs/:id | recruiter | Update own job | — |
-| DELETE | /api/jobs/:id | recruiter | Delete own job | — |
+| GET | /api/jobs | any logged-in user | Browse all jobs. **Cached 60s** per filter/page combo | — |
+| GET | /api/jobs/:id | any logged-in user | Get single job. **Cached 60s** | — |
+| GET | /api/jobs/recommended | candidate | Jobs ranked by skill match, same as `/api/recommendations/jobs`. **Cached 120s** per user | — |
+| POST | /api/jobs | recruiter | Post a new job — invalidates the job-list & recommendation caches | ✅ title, company, description, location, skills, deadline |
+| PUT | /api/jobs/:id | recruiter | Update own job — invalidates that job's cache | — |
+| DELETE | /api/jobs/:id | recruiter | Delete own job — invalidates that job's cache | — |
 | GET | /api/jobs/recruiter/my-jobs | recruiter | Get all jobs posted by me | — |
 
 ### Candidate Profile
@@ -99,22 +103,25 @@ npm run dev
 | Method | Route | Access | Description | Validated |
 |--------|-------|--------|-------------|-----------|
 | POST | /api/tpo/drives | tpo | Post a drive to a group → notifies every student in it (DB notification + Socket.IO). Requires a verified college | ✅ company, title, targetGroup, deadline |
-| GET | /api/tpo/drives | tpo | List all drives of this college | — |
-| GET | /api/tpo/drives/:id | tpo | Get a single drive's details | — |
+| GET | /api/tpo/drives | tpo | List all drives of this college — `status` is auto-managed (always `closed` past the deadline) | — |
+| GET | /api/tpo/drives/:id | tpo | Get a drive's details + a response summary (interested / not interested / no response) | — |
 | PUT | /api/tpo/drives/:id | tpo | Update drive details | — |
-| PUT | /api/tpo/drives/:id/status | tpo | Manually set status (`upcoming` / `ongoing` / `closed`) | — |
+| PUT | /api/tpo/drives/:id/status | tpo | Manually set status (`upcoming` / `ongoing` / `closed`) before the deadline | — |
+| GET | /api/tpo/drives/:id/report | tpo | Download a PDF report of every targeted student's response |
 
 ### Campus (student side)
 | Method | Route | Access | Description |
 |--------|-------|--------|-------------|
-| POST | /api/campus/drives/:id/respond | candidate | Respond `interested` / `not_interested` to a drive — blocked once closed or past the deadline |
+| GET | /api/campus/drives | candidate | Feed of drives for groups this student belongs to, eligibility-filtered. **Cached 60s** per college+user |
+| GET | /api/campus/drives/:id | candidate | Single drive's details (eligibility-checked) + my own response |
+| POST | /api/campus/drives/:id/respond | candidate | Respond `interested` / `not_interested` — blocked once closed or past the deadline |
+| PUT | /api/campus/profile | candidate | Update resume + skills only (name/email/rollNo/branch/cgpa stay locked); flips `profileComplete` once both are set |
 
 ### Notifications
 | Method | Route | Access | Description |
 |--------|-------|--------|-------------|
 | GET | /api/notifications | any logged-in user | List my notifications (newest first) with an unread count |
 | PUT | /api/notifications/read | any logged-in user | Mark all (or specific `ids`) as read |
-
 
 ## How Job Recommendations Work
 
@@ -133,37 +140,9 @@ npm run dev
 4. Each recommendation includes the `candidate`, the `matchScore`, the `matchedSkills`, and the `missingSkills` they'd need to be a full match.
 5. If the job has no `skillsRequired`, the endpoint returns a `400` since matching has nothing to compare against.
 
-## Phase 3.1 / 3.2 — Setup Notes
-
-### Folder changes
-```
-src/
-├── controllers/
-│   └── recommendation.controller.js   # new — getRecommendedJobs, getRecommendedCandidates
-├── routes/
-│   └── recommendation.routes.js       # new — GET /jobs, GET /candidates/:jobId
-├── utils/
-│   └── matchScore.js                  # new — skill match % calculator (shared both directions)
-└── app.js                             # updated — mounts /api/recommendations
-```
-
-### Environment variables
-None. Phase 3.1 and 3.2 reuse the existing DB connection and auth setup — no new variables were added to `.env` / `.env.example`.
-
-### How to test
-1. Log in as a candidate (`POST /api/auth/login`) so the `token` cookie is set.
-2. Make sure the candidate has skills — either `PUT /api/jobs/profile` with a `skills` array, or `POST /api/resume/upload` to auto-extract them.
-3. As a recruiter, create a few jobs (`POST /api/jobs`) with varying `skillsRequired`.
-4. Call `GET /api/recommendations/jobs` as the candidate:
-   - With no skills on the profile → expect `400` with a message to upload a resume / update profile.
-   - With skills set → expect `200` with `recommendations` sorted by `matchScore` (highest first), each containing `matchedSkills` and `missingSkills`.
-5. Call `GET /api/recommendations/candidates/:jobId` as the recruiter who owns that job:
-   - As a different recruiter / without owning the job → expect `404`.
-   - As the owning recruiter → expect `200` with `recommendations` of matching candidates, sorted by `matchScore`.
-
 ## How the Excel/CSV Student Import Works
 
-1. A TPO must register and have a verified or unverified college on file first — `POST /api/college/register` links the college to the requesting TPO (`one college per TPO`).
+1. A TPO must register and have a verified or unverified college on file first — `POST /api/college/register` links the college to the requesting TPO (one college per TPO).
 2. `POST /api/tpo/import` accepts a single Excel (`.xlsx`/`.xls`) or CSV file under the `file` field, parsed in-memory with `xlsx` (no disk writes).
 3. Each row is read tolerantly — header casing/spacing variants like `roll_no`, `Roll No`, `RollNo` are all accepted via a `pick()` helper.
 4. Rows missing `name`, `email`, or `roll_no` are skipped and reported in `summary.errors` with the offending row number.
@@ -185,6 +164,29 @@ None. Phase 3.1 and 3.2 reuse the existing DB connection and auth setup — no n
 5. Students connect to Socket.IO using the same JWT as the REST API (via the cookie or an explicit `auth.token`), and are auto-joined to their personal + college rooms on connect.
 6. A student responds to a drive with `POST /api/campus/drives/:id/respond`. The response is **locked** once the drive's deadline has passed or its status was manually set to `closed` — both checks happen before the response is recorded.
 7. Responses are upserted (one per student per drive), so a student can change their mind any time before the deadline.
+
+## Drive Status, Profile Completion, PDF Reports & Caching (Day 3)
+
+**Auto-managed drive status** — `utils/driveStatus.js` is now the single source of truth:
+- `effectiveStatus(drive)`: once `deadline` has passed, a drive always reads as `closed`, no matter what's stored. Before the deadline, the TPO's manually-set status (`upcoming` / `ongoing`) is trusted.
+- `isDriveOpen(drive)`: used to gate `POST /api/campus/drives/:id/respond` — the same rule the feed displays is the rule that locks responses.
+
+**Profile completion flag** — `PUT /api/campus/profile` recomputes `user.profileComplete` after every update: `true` once both `resumeUrl` and at least one skill are present, `false` otherwise.
+
+**Campus drive feed** — `GET /api/campus/drives` returns only drives whose `targetGroup` the student actually belongs to (eligibility-filtered), each annotated with the student's own response if they've made one.
+
+**PDF report** — `GET /api/tpo/drives/:id/report` streams an A4 landscape PDF (built with `pdfkit`, no temp files) listing every targeted student's name / roll no / branch / CGPA / skills / response, with automatic pagination.
+
+**Redis caching** — `config/redis.js` connects lazily and never blocks the app: if Redis is down, `middlewares/cache.middleware.js` just passes every request straight through (the API is identical with or without it). Cached routes:
+
+| Route | TTL | Invalidated on |
+|-------|-----|-----------------|
+| `GET /api/jobs` | 60s | any job create/update/delete |
+| `GET /api/jobs/:id` | 60s | that job's update/delete |
+| `GET /api/jobs/recommended` | 120s | any job create (broad invalidation) |
+| `GET /api/campus/drives` | 60s, per college+user | a drive being posted/updated/status-changed for that college |
+
+A `X-Cache: HIT`/`MISS` response header is set on every cached route so you can see it working.
 
 ## Validation Rules
 
@@ -248,7 +250,8 @@ None. Phase 3.1 and 3.2 reuse the existing DB connection and auth setup — no n
 - [x] Applications (apply, withdraw, save, recruiter views)
 - [x] Email notifications
 - [x] Admin panel
-### Phase 2.1 — Error Handling Infrastructure
+
+### Phase 2.1 — Error Handling Infrastructure ✅
 - [x] `asyncHandler` — wraps all controllers, auto-catches async errors
 - [x] `errorHandler` — global error handler (Mongoose, JWT, Multer, duplicates)
 - [x] `validate` middleware — returns structured field-level errors
@@ -258,7 +261,7 @@ None. Phase 3.1 and 3.2 reuse the existing DB connection and auth setup — no n
 - [x] `job.validator.js` — create job rules
 - [x] Validators plugged into auth and job routes
 
-### Phase 2.3 — Resume Parser
+### Phase 2.3 — Resume Parser ✅
 - [x] Cloudinary config
 - [x] Multer config (PDF only, 5MB limit)
 - [x] Skill extractor utility
@@ -278,14 +281,9 @@ None. Phase 3.1 and 3.2 reuse the existing DB connection and auth setup — no n
 - [x] Recommendation route (`GET /api/recommendations/candidates/:jobId`) — recruiter-only, scoped to jobs they own
 - [x] No schema or env changes required — reuses existing `User.skills` and `Job.skillsRequired`
 
-### PROJECT UPGRADE ++
+## Phase 4 — Campus Placement Module
 
-
-### Phase 4:- Adding college and their TPO for posting Incampus Placements
-
-## Phase 4.1 — Campus Placement Module ✅
-
-
+### Phase 4.1 — College & TPO Onboarding ✅
 - [x] `College` model — `name`, `address`, `website`, `isVerified`, `tpo` (owner ref)
 - [x] `User` model extended — `tpo` role + on-campus fields (`college`, `rollNo`, `branch`, `cgpa`, `isImported`)
 - [x] `authTPO` middleware — restricts TPO-only routes; `authUser` updated to recognize `tpo`
@@ -295,8 +293,7 @@ None. Phase 3.1 and 3.2 reuse the existing DB connection and auth setup — no n
 - [x] Batch email sending (`sendBatchEmails`) — credential emails sent in chunks of 50 via `Promise.allSettled`
 - [x] `GET /api/tpo/students`, `GET /api/tpo/students/:id` — view imported students for the TPO's college
 
-## Phase 4.2 — Campus Drives & Realtime Notifications ✅
-
+### Phase 4.2 — Campus Drives & Realtime Notifications ✅
 - [x] `StudentGroup` model — `name`, `filters { minCgpa, branches[], skills[] }`, auto-populated `students[]`
 - [x] Group auto-filter population — `buildMatchQuery()` runs on create *and* on every filter update
 - [x] `CampusDrive` model — `company`, `title`, `description`, `jd`, `targetGroup`, `deadline`, `status`
@@ -306,3 +303,14 @@ None. Phase 3.1 and 3.2 reuse the existing DB connection and auth setup — no n
 - [x] TPO drive management — list / get / update drive, manual status toggle (`upcoming` / `ongoing` / `closed`)
 - [x] Student response with deadline lock (`POST /api/campus/drives/:id/respond`) — eligibility-checked against group membership, rejected once the deadline passes or status is `closed`, upserted so responses are editable until then
 - [x] `server.js` now wraps Express in a raw `http` server so Socket.IO can share the same port
+
+### Phase 4.3 — Status, PDFs, Profiles & Caching ✅
+- [x] Drive status auto-management — `utils/driveStatus.js` (`effectiveStatus`, `isDriveOpen`), used consistently by the TPO drive views, the student feed, and the response lock
+- [x] `GET /api/tpo/drives/:id` now returns a response summary (interested / not interested / no response)
+- [x] PDF drive report — `utils/generatePDF.js` (`pdfkit`) streamed via `GET /api/tpo/drives/:id/report`
+- [x] `profileComplete` flag on `User` — recomputed on every `PUT /api/campus/profile`
+- [x] Campus drive feed for students — `GET /api/campus/drives` / `GET /api/campus/drives/:id`, eligibility-filtered to the student's groups, includes their own response
+- [x] Redis caching — `config/redis.js` (optional, never blocks startup), `middlewares/cache.middleware.js` (transparent read-through, `X-Cache` header), `utils/cacheKeys.js` (key builders + write-side invalidators)
+- [x] Caching wired into: job list, job-by-id, recommended jobs, campus drive feed — with invalidation on every relevant write
+- [x] Fixed a leftover stub in `getJobById` (`GET /api/jobs/:id` previously always threw) so the now-cached route actually works
+- [x] `server.js` connects Redis at boot alongside Mongo and Socket.IO
