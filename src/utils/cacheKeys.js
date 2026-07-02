@@ -11,8 +11,9 @@ const cacheKeys = {
     },
     jobById: (id) => `jobs:item:${id}`,
     recommendedJobs: (userId) => `jobs:recommended:${userId}`,
-    // feed is filtered per student (group membership), namespaced under college
-    // so a new drive can invalidate every student's feed for that college at once
+    // feed is filtered per student (placement group membership), namespaced
+    // under college so a new drive can invalidate every student's feed for
+    // that college at once
     campusDrives: (collegeId, userId) => `campus:drives:${collegeId}:${userId}`,
 };
 
@@ -40,7 +41,11 @@ async function invalidate(patterns = []) {
 const invalidators = {
     jobs: () => invalidate(['jobs:list:*', 'jobs:recommended:*']),
     job: (id) => invalidate([`jobs:item:${id}`, 'jobs:list:*', 'jobs:recommended:*']),
+    // a new/updated drive can change any student's feed in the college
     campusDrives: (collegeId) => invalidate([`campus:drives:${collegeId}:*`]),
+    // a single student's placement group changed (assign/move/remove) — only
+    // that student's cached feed can be stale, no need to bust the whole college
+    studentCampusDrives: (collegeId, studentId) => invalidate([cacheKeys.campusDrives(collegeId, studentId)]),
 };
 
 module.exports = { cacheKeys, invalidate, invalidators };

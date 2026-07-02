@@ -15,7 +15,11 @@ const validate = require('../middlewares/validate');
 const { asyncHandler } = require('../middlewares/errorHandler');
 const authMiddleware = require('../middlewares/auth.middleware');
 
-// every placement-group route requires a logged-in TPO
+// Candidate: view own placement group — read-only, no TPO/college ownership
+// involved, so this must be declared BEFORE the router-wide authTPO gate below.
+router.get('/my-group', authMiddleware.authCandidate, asyncHandler(placementGroupController.getMyGroup));
+
+// every other placement-group route requires a logged-in TPO
 router.use(authMiddleware.authTPO);
 
 // ── Group CRUD ────────────────────────────────────────────────────────────────

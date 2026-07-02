@@ -1,5 +1,4 @@
 const userModel = require('../models/user.model');
-const studentGroupModel = require('../models/studentGroup.model');
 const campusDriveModel = require('../models/campusDrive.model');
 const driveResponseModel = require('../models/driveResponse.model');
 const notificationModel = require('../models/notification.model');
@@ -7,36 +6,31 @@ const { isCandidateInAudience, buildAudienceFilter } = require('../utils/driveAu
 const { effectiveStatus, isDriveOpen } = require('../utils/driveStatus');
 const { emitToUser } = require('../config/socket');
 
-// the candidate's own college + the group ids they belong to.
-// returns { college, groupIds } or null (after sending a response).
-async function resolveMembership(req, res) {
-    const user = await userModel.findById(req.user.id).select('college placementGroup');
-    if (!user || !user.college) {
-        res.status(200).json({
+// Shared lookup: a candidate's college + their single placement group.
+// Students belong to at most one placement group (User.placementGroup is the
+// single source of truth — see user.model.js), so this replaces the old
+// query that pulled every filter-based StudentGroup a student happened to
+// match. Returns null if the candidate isn't linked to a college.
+async function getCandidateMembership(userId) {
+    const user = await userModel.findById(userId).select('college name placementGroup');
+    if (!user || !user.college) return null;
+    return user;
+}
+
+async function getCampusDrives(req, res) {
+    const user = await getCandidateMembership(req.user.id);
+    if (!user) {
+        return res.status(200).json({
             message: 'You are not linked to any college (off-campus account).',
             total: 0,
             drives: []
         });
-        return null;
     }
-    const groups = await studentGroupModel
-        .find({ college: user.college, students: user._id })
-        .select('_id');
-    return {
-        college: user.college,
-        groupIds: groups.map(g => g._id),
-        placementGroupId: user.placementGroup
-    };
-}
-
-async function getCampusDrives(req, res) {
-    const membership = await resolveMembership(req, res);
-    if (!membership) return;
 
     const drives = await campusDriveModel
         .find({
-            college: membership.college,
-            ...buildAudienceFilter(membership.groupIds, membership.placementGroupId)
+            college: user.college,
+            ...buildAudienceFilter(user.placementGroup)
         })
         .sort({ createdAt: -1 });
 
@@ -63,8 +57,8 @@ async function getCampusDrives(req, res) {
 }
 
 async function getCampusDriveById(req, res) {
-    const user = await userModel.findById(req.user.id).select('college placementGroup');
-    if (!user || !user.college) {
+    const user = await getCandidateMembership(req.user.id);
+    if (!user) {
         return res.status(403).json({ message: 'You are not linked to any college' });
     }
 
@@ -73,7 +67,7 @@ async function getCampusDriveById(req, res) {
         return res.status(404).json({ message: 'Drive not found' });
     }
 
-    const eligible = await isCandidateInAudience(user, drive);
+    const eligible = isCandidateInAudience(user, drive);
     if (!eligible) {
         return res.status(403).json({ message: 'You are not eligible for this drive' });
     }
@@ -101,8 +95,8 @@ async function respondToDrive(req, res) {
         return res.status(400).json({ message: 'Response must be "interested" or "not_interested"' });
     }
 
-    const user = await userModel.findById(req.user.id).select('college name placementGroup');
-    if (!user || !user.college) {
+    const user = await getCandidateMembership(req.user.id);
+    if (!user) {
         return res.status(403).json({ message: 'You are not linked to any college' });
     }
 
@@ -111,7 +105,7 @@ async function respondToDrive(req, res) {
         return res.status(404).json({ message: 'Drive not found' });
     }
 
-    const eligible = await isCandidateInAudience(user, drive);
+    const eligible = isCandidateInAudience(user, drive);
     if (!eligible) {
         return res.status(403).json({ message: 'You are not eligible for this drive' });
     }

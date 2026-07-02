@@ -1,5 +1,6 @@
 const placementGroupModel = require('../models/placementGroup.model');
 const userModel = require('../models/user.model');
+const { invalidators } = require('../utils/cacheKeys');
 
 // reuse the same "find the college owned by this TPO" helper already used
 // throughout tpo.controller.js, instead of duplicating it here
@@ -12,11 +13,14 @@ function escapeRegex(value) {
 
 // moves/assigns a student into `group`, vacating whatever group they were in
 // before. This is the one place that touches User.placementGroup, which is
-// what makes "one group per student" trivial to guarantee.
-async function reassignStudent(student, group) {
+// what makes "one group per student" trivial to guarantee. Also busts that
+// student's cached campus-drive feed, since which drives are visible to them
+// can change the moment their placement group changes.
+async function reassignStudent(student, group, collegeId) {
     student.placementGroup = group._id;
     student.placementGroupAssignedAt = new Date();
     await student.save();
+    await invalidators.studentCampusDrives(collegeId.toString(), student._id.toString());
 }
 
 // ── Group CRUD ────────────────────────────────────────────────────────────────
@@ -147,12 +151,21 @@ async function deleteGroup(req, res) {
 
     // vacate every student in this group before deleting it — nobody should be
     // left pointing at a placement group that no longer exists
+    const vacated = await userModel.find(
+        { college: college._id, placementGroup: group._id }
+    ).select('_id');
+
     await userModel.updateMany(
         { college: college._id, placementGroup: group._id },
         { placementGroup: null, placementGroupAssignedAt: null }
     );
 
     await placementGroupModel.findByIdAndDelete(group._id);
+
+    // every vacated student's feed can change now that they have no group
+    await Promise.all(
+        vacated.map(s => invalidators.studentCampusDrives(college._id.toString(), s._id.toString()))
+    );
 
     res.status(200).json({
         message: 'Placement group deleted successfully'
@@ -183,7 +196,7 @@ async function assignStudent(req, res) {
         return res.status(409).json({ message: 'Student is already in this placement group' });
     }
 
-    await reassignStudent(student, group);
+    await reassignStudent(student, group, college._id);
 
     res.status(200).json({
         message: previousGroupId
@@ -216,6 +229,7 @@ async function removeStudent(req, res) {
     student.placementGroup = null;
     student.placementGroupAssignedAt = null;
     await student.save();
+    await invalidators.studentCampusDrives(college._id.toString(), student._id.toString());
 
     res.status(200).json({
         message: 'Student removed from placement group successfully',
@@ -250,7 +264,7 @@ async function moveStudent(req, res) {
     }
 
     const previousGroupId = student.placementGroup;
-    await reassignStudent(student, group);
+    await reassignStudent(student, group, college._id);
 
     res.status(200).json({
         message: 'Student moved to the new placement group successfully',
@@ -284,7 +298,7 @@ async function bulkAssignStudents(req, res) {
             summary.errors.push({ studentId, reason: 'Already in this group' });
             continue;
         }
-        await reassignStudent(student, group);
+        await reassignStudent(student, group, college._id);
         summary.assigned += 1;
     }
 
@@ -312,12 +326,47 @@ async function bulkRemoveStudents(req, res) {
         student.placementGroup = null;
         student.placementGroupAssignedAt = null;
         await student.save();
+        await invalidators.studentCampusDrives(college._id.toString(), student._id.toString());
         summary.removed += 1;
     }
 
     res.status(200).json({
         message: 'Bulk removal complete',
         summary
+    });
+}
+
+// ── Candidate: view own placement group ─────────────────────────────────────
+// Read-only. Any logged-in candidate can check their own group — no college
+// resolution via resolveCollege (that's TPO-only), just their own user doc.
+async function getMyGroup(req, res) {
+    const user = await userModel.findById(req.user.id).select('placementGroup placementGroupAssignedAt');
+
+    if (!user || !user.placementGroup) {
+        return res.status(200).json({
+            message: 'No placement group assigned yet',
+            group: null
+        });
+    }
+
+    const group = await placementGroupModel.findById(user.placementGroup).select('name description');
+
+    // stale reference (e.g. group deleted without clearing the user) — treat as unassigned
+    if (!group) {
+        return res.status(200).json({
+            message: 'No placement group assigned yet',
+            group: null
+        });
+    }
+
+    res.status(200).json({
+        message: 'Placement group fetched successfully',
+        group: {
+            id: group._id,
+            name: group.name,
+            description: group.description,
+            assignedAt: user.placementGroupAssignedAt
+        }
     });
 }
 
@@ -331,5 +380,6 @@ module.exports = {
     removeStudent,
     moveStudent,
     bulkAssignStudents,
-    bulkRemoveStudents
+    bulkRemoveStudents,
+    getMyGroup
 };
