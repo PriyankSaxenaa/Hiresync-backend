@@ -47,6 +47,23 @@ const userSchema = new mongoose.Schema({
         type: Boolean,       // true if added through an Excel import
         default: false
     },
+
+    // ── Placement Group (manual TPO assignment) ─────────────────────────────────
+    // A candidate belongs to at most ONE placement group at a time. This is the
+    // single source of truth for membership — PlacementGroup itself does not
+    // keep a students array, so this is the only place that needs updating on
+    // assign/move/remove, which is what makes the "one group per student"
+    // constraint trivial to enforce atomically.
+    placementGroup: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'PlacementGroup',
+        default: null
+    },
+    placementGroupAssignedAt: {
+        type: Date,
+        default: null
+    },
+
     profileComplete: {
         type: Boolean,       // flips true once resume + skills are present
         default: false

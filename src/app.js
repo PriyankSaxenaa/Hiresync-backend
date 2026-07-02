@@ -11,6 +11,7 @@ const tpoRoutes = require('./routes/tpo.routes');
 const campusRoutes = require('./routes/campus.routes');
 const notificationRoutes = require('./routes/notification.routes');
 const analyticsRoutes = require('./routes/analytics.routes');
+const placementGroupRoutes = require('./routes/placementGroup.routes');
 const { errorHandler } = require('./middlewares/errorHandler');
 
 const app = express();
@@ -34,6 +35,7 @@ app.use('/api/tpo', tpoRoutes);
 app.use('/api/campus', campusRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/placement-groups', placementGroupRoutes);
 
 // keep this at the bottom — express identifies error handlers by the 4 args
 app.use(errorHandler);

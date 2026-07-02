@@ -1,3 +1,4 @@
+
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const xlsx = require('xlsx');
@@ -547,6 +548,7 @@ async function getTpoAnalytics(req, res) {
 }
 
 module.exports = {
+    resolveCollege,
     importStudents,
     getStudents,
     getStudentById,
