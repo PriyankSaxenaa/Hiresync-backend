@@ -6,33 +6,34 @@ const campusDriveSchema = new mongoose.Schema({
         ref: 'College',
         required: true
     },
-    company: {
+    company: { type: String, required: true },
+    title: { type: String, required: true },
+    description: { type: String, default: '' },
+    jd: { type: String, default: '' },
+
+    // ── Targeting ────────────────────────────────────────────────────────────
+    // 'studentGroup' (default) preserves the original filter-based StudentGroup
+    // targeting so existing drives keep working unchanged.
+    // 'placementGroup' targets one or more manually-managed PlacementGroups.
+    // 'all' targets every candidate in the college.
+    targetType: {
         type: String,
-        required: true,
+        enum: ['studentGroup', 'placementGroup', 'all'],
+        default: 'studentGroup'
     },
-    title: {
-        type: String,
-        required: true,
-    },
-    description: {
-        type: String,
-        default: ''
-    },
-    jd: {
-        type: String,        // full job description
-        default: ''
-    },
+    // only required/used when targetType === 'studentGroup'
     targetGroup: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'StudentGroup',
-        required: true
+        required: function () { return this.targetType === 'studentGroup'; }
     },
-    deadline: {
-        type: Date,
-        required: true,
-    },
-    // status is set by the TPO (upcoming / ongoing / closed). Auto-management
-    // based on the deadline is added in a later phase.
+    // only used when targetType === 'placementGroup'
+    targetPlacementGroups: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'PlacementGroup'
+    }],
+
+    deadline: { type: Date, required: true },
     status: {
         type: String,
         enum: ['upcoming', 'ongoing', 'closed'],

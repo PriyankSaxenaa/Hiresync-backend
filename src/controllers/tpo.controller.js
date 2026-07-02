@@ -2,7 +2,8 @@
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const xlsx = require('xlsx');
-
+const placementGroupModel = require('../models/placementGroup.model');
+const { getAudienceStudentIds } = require('../utils/driveAudience');
 const userModel = require('../models/user.model');
 const collegeModel = require('../models/college.model');
 const studentGroupModel = require('../models/studentGroup.model');
@@ -313,26 +314,34 @@ async function createDrive(req, res) {
         return res.status(403).json({ message: 'Your college must be verified by an admin before posting drives.' });
     }
 
-    const { company, title, description, jd, targetGroup, deadline } = req.body;
+    const { company, title, description, jd, deadline } = req.body;
+    const targetType = req.body.targetType || 'studentGroup';
 
-    // the target group must belong to this college
-    const group = await studentGroupModel.findOne({ _id: targetGroup, college: college._id });
-    if (!group) {
-        return res.status(404).json({ message: 'Target group not found in your college' });
+    const driveData = { college: college._id, company, title, description, jd, deadline, targetType };
+
+    if (targetType === 'studentGroup') {
+        // the target group must belong to this college
+        const group = await studentGroupModel.findOne({ _id: req.body.targetGroup, college: college._id });
+        if (!group) {
+            return res.status(404).json({ message: 'Target group not found in your college' });
+        }
+        driveData.targetGroup = group._id;
+    } else if (targetType === 'placementGroup') {
+        const ids = req.body.targetPlacementGroups || [];
+        const groups = await placementGroupModel.find({ _id: { $in: ids }, college: college._id }).select('_id');
+        if (groups.length !== ids.length) {
+            return res.status(404).json({ message: 'One or more target placement groups were not found in your college' });
+        }
+        driveData.targetPlacementGroups = groups.map(g => g._id);
     }
+    // targetType === 'all' needs no extra reference data
 
-    const drive = await campusDriveModel.create({
-        college: college._id,
-        company,
-        title,
-        description,
-        jd,
-        targetGroup,
-        deadline
-    });
+    const drive = await campusDriveModel.create(driveData);
 
-    // notify every student in the target group: DB notification + realtime socket
-    const notifications = group.students.map(studentId => ({
+    // resolve the actual audience for the chosen targeting mode and notify them
+    const audienceIds = await getAudienceStudentIds(college._id, drive);
+
+    const notifications = audienceIds.map(studentId => ({
         user: studentId,
         type: 'drive',
         message: `New campus drive: ${title} (${company}). Respond before the deadline.`,
@@ -340,7 +349,7 @@ async function createDrive(req, res) {
     }));
     if (notifications.length) {
         await notificationModel.insertMany(notifications);
-        group.students.forEach(studentId => {
+        audienceIds.forEach(studentId => {
             emitToUser(studentId.toString(), 'drive:new', {
                 driveId: drive._id, title, company, deadline: drive.deadline
             });
@@ -357,7 +366,7 @@ async function createDrive(req, res) {
     res.status(201).json({
         message: 'Drive posted and students notified',
         drive,
-        notifiedStudents: group.students.length
+        notifiedStudents: audienceIds.length
     });
 }
 
@@ -368,6 +377,7 @@ async function getDrives(req, res) {
     const drives = await campusDriveModel
         .find({ college: college._id })
         .populate('targetGroup', 'name')
+        .populate('targetPlacementGroups', 'name')
         .sort({ createdAt: -1 });
 
     res.status(200).json({
@@ -377,7 +387,9 @@ async function getDrives(req, res) {
             id: d._id,
             company: d.company,
             title: d.title,
-            targetGroup: d.targetGroup,
+            targetType: d.targetType,
+            targetGroup: d.targetType === 'studentGroup' ? d.targetGroup : null,
+            targetPlacementGroups: d.targetType === 'placementGroup' ? d.targetPlacementGroups : [],
             deadline: d.deadline,
             status: effectiveStatus(d)
         }))
@@ -388,20 +400,26 @@ async function getDriveById(req, res) {
     const college = await resolveCollege(req, res);
     if (!college) return;
 
-    const drive = await campusDriveModel
-        .findOne({ _id: req.params.id, college: college._id })
-        .populate('targetGroup', 'name students');
-
+    const drive = await campusDriveModel.findOne({ _id: req.params.id, college: college._id });
     if (!drive) {
         return res.status(404).json({ message: 'Drive not found in your college' });
     }
 
-    // response summary: interested / not interested / no response, against the
-    // total number of students targeted
+    // total targeted now comes from the resolved audience, so it's correct
+    // regardless of targeting mode
+    const audienceIds = await getAudienceStudentIds(college._id, drive);
     const responses = await driveResponseModel.find({ drive: drive._id });
     const interested = responses.filter(r => r.response === 'interested').length;
     const notInterested = responses.filter(r => r.response === 'not_interested').length;
-    const totalTargeted = drive.targetGroup ? drive.targetGroup.students.length : 0;
+
+    let target = { type: drive.targetType };
+    if (drive.targetType === 'studentGroup') {
+        const group = await studentGroupModel.findById(drive.targetGroup).select('name');
+        target.group = group ? { id: group._id, name: group.name } : null;
+    } else if (drive.targetType === 'placementGroup') {
+        const groups = await placementGroupModel.find({ _id: { $in: drive.targetPlacementGroups } }).select('name');
+        target.groups = groups.map(g => ({ id: g._id, name: g.name }));
+    }
 
     res.status(200).json({
         message: 'Drive fetched successfully',
@@ -413,14 +431,14 @@ async function getDriveById(req, res) {
             jd: drive.jd,
             deadline: drive.deadline,
             status: effectiveStatus(drive),
-            targetGroup: drive.targetGroup ? { id: drive.targetGroup._id, name: drive.targetGroup.name } : null
+            target
         },
         responseSummary: {
-            totalTargeted,
+            totalTargeted: audienceIds.length,
             responded: responses.length,
             interested,
             notInterested,
-            noResponse: Math.max(totalTargeted - responses.length, 0)
+            noResponse: Math.max(audienceIds.length - responses.length, 0)
         }
     });
 }
@@ -438,6 +456,49 @@ async function updateDrive(req, res) {
     editable.forEach(f => {
         if (req.body[f] !== undefined) drive[f] = req.body[f];
     });
+
+    // any targeting field present → treat as a full re-target and re-validate
+    // the whole combination (avoids ending up with e.g. targetType 'all' but
+    // a stale targetPlacementGroups array left over from before)
+    const retargeting = req.body.targetType !== undefined
+        || req.body.targetGroup !== undefined
+        || req.body.targetPlacementGroups !== undefined;
+
+    if (retargeting) {
+        const targetType = req.body.targetType || drive.targetType;
+
+        if (targetType === 'studentGroup') {
+            const groupId = req.body.targetGroup
+                || (drive.targetType === 'studentGroup' ? drive.targetGroup : null);
+            const group = await studentGroupModel.findOne({ _id: groupId, college: college._id });
+            if (!group) {
+                return res.status(404).json({ message: 'Target group not found in your college' });
+            }
+            drive.targetType = 'studentGroup';
+            drive.targetGroup = group._id;
+            drive.targetPlacementGroups = [];
+        } else if (targetType === 'placementGroup') {
+            const ids = req.body.targetPlacementGroups
+                || (drive.targetType === 'placementGroup' ? drive.targetPlacementGroups : []);
+            if (!Array.isArray(ids) || !ids.length) {
+                return res.status(400).json({ message: 'targetPlacementGroups must be a non-empty array' });
+            }
+            const groups = await placementGroupModel.find({ _id: { $in: ids }, college: college._id }).select('_id');
+            if (groups.length !== ids.length) {
+                return res.status(404).json({ message: 'One or more target placement groups were not found in your college' });
+            }
+            drive.targetType = 'placementGroup';
+            drive.targetPlacementGroups = groups.map(g => g._id);
+            drive.targetGroup = undefined;
+        } else if (targetType === 'all') {
+            drive.targetType = 'all';
+            drive.targetGroup = undefined;
+            drive.targetPlacementGroups = [];
+        } else {
+            return res.status(400).json({ message: 'Invalid targetType. Use studentGroup, placementGroup or all.' });
+        }
+    }
+
     await drive.save();
 
     await invalidators.campusDrives(college._id.toString());
@@ -473,18 +534,19 @@ async function downloadDriveReport(req, res) {
     const college = await resolveCollege(req, res);
     if (!college) return;
 
-    const drive = await campusDriveModel
-        .findOne({ _id: req.params.id, college: college._id })
-        .populate({ path: 'targetGroup', populate: { path: 'students', select: 'name rollNo branch cgpa skills' } });
-
+    const drive = await campusDriveModel.findOne({ _id: req.params.id, college: college._id });
     if (!drive) {
         return res.status(404).json({ message: 'Drive not found in your college' });
     }
 
+    const audienceIds = await getAudienceStudentIds(college._id, drive);
+    const students = await userModel
+        .find({ _id: { $in: audienceIds } })
+        .select('name rollNo branch cgpa skills');
+
     const responses = await driveResponseModel.find({ drive: drive._id });
     const responseByUser = new Map(responses.map(r => [r.candidate.toString(), r.response]));
 
-    const students = drive.targetGroup ? drive.targetGroup.students : [];
     const rows = students.map(s => ({
         name: s.name,
         rollNo: s.rollNo,
@@ -494,7 +556,6 @@ async function downloadDriveReport(req, res) {
         response: responseByUser.get(s._id.toString()) || 'no_response'
     }));
 
-    // streams the PDF straight to the client
     streamDriveReport(res, { drive, rows });
 }
 

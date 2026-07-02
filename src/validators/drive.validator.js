@@ -17,9 +17,24 @@ const createDriveValidator = [
         .optional()
         .trim(),
 
+    body('targetType')
+        .optional()
+        .isIn(['studentGroup', 'placementGroup', 'all'])
+        .withMessage('targetType must be studentGroup, placementGroup or all'),
+
+    // required only when targeting a StudentGroup (the default mode)
     body('targetGroup')
-        .notEmpty().withMessage('Target group is required')
+        .if((value, { req }) => (req.body.targetType || 'studentGroup') === 'studentGroup')
+        .notEmpty().withMessage('targetGroup is required when targetType is studentGroup')
         .isMongoId().withMessage('targetGroup must be a valid group id'),
+
+    // required only when targeting PlacementGroups
+    body('targetPlacementGroups')
+        .if((value, { req }) => req.body.targetType === 'placementGroup')
+        .isArray({ min: 1 }).withMessage('targetPlacementGroups must be a non-empty array when targetType is placementGroup'),
+    body('targetPlacementGroups.*')
+        .if((value, { req }) => req.body.targetType === 'placementGroup')
+        .isMongoId().withMessage('Each targetPlacementGroups entry must be a valid group id'),
 
     body('deadline')
         .notEmpty().withMessage('Deadline is required')

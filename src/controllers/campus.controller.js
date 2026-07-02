@@ -3,14 +3,14 @@ const studentGroupModel = require('../models/studentGroup.model');
 const campusDriveModel = require('../models/campusDrive.model');
 const driveResponseModel = require('../models/driveResponse.model');
 const notificationModel = require('../models/notification.model');
-
+const { isCandidateInAudience, buildAudienceFilter } = require('../utils/driveAudience');
 const { effectiveStatus, isDriveOpen } = require('../utils/driveStatus');
 const { emitToUser } = require('../config/socket');
 
 // the candidate's own college + the group ids they belong to.
 // returns { college, groupIds } or null (after sending a response).
 async function resolveMembership(req, res) {
-    const user = await userModel.findById(req.user.id).select('college');
+    const user = await userModel.findById(req.user.id).select('college placementGroup');
     if (!user || !user.college) {
         res.status(200).json({
             message: 'You are not linked to any college (off-campus account).',
@@ -22,18 +22,22 @@ async function resolveMembership(req, res) {
     const groups = await studentGroupModel
         .find({ college: user.college, students: user._id })
         .select('_id');
-    return { college: user.college, groupIds: groups.map(g => g._id) };
+    return {
+        college: user.college,
+        groupIds: groups.map(g => g._id),
+        placementGroupId: user.placementGroup
+    };
 }
 
-// ── Campus drive feed ─────────────────────────────────────────────────────────
-
-// only this candidate's college drives, filtered to groups they belong to
 async function getCampusDrives(req, res) {
     const membership = await resolveMembership(req, res);
     if (!membership) return;
 
     const drives = await campusDriveModel
-        .find({ college: membership.college, targetGroup: { $in: membership.groupIds } })
+        .find({
+            college: membership.college,
+            ...buildAudienceFilter(membership.groupIds, membership.placementGroupId)
+        })
         .sort({ createdAt: -1 });
 
     // attach this candidate's own response (if any) to each drive
@@ -59,7 +63,7 @@ async function getCampusDrives(req, res) {
 }
 
 async function getCampusDriveById(req, res) {
-    const user = await userModel.findById(req.user.id).select('college');
+    const user = await userModel.findById(req.user.id).select('college placementGroup');
     if (!user || !user.college) {
         return res.status(403).json({ message: 'You are not linked to any college' });
     }
@@ -69,9 +73,8 @@ async function getCampusDriveById(req, res) {
         return res.status(404).json({ message: 'Drive not found' });
     }
 
-    // eligibility: candidate must be in the drive's target group
-    const inGroup = await studentGroupModel.exists({ _id: drive.targetGroup, students: user._id });
-    if (!inGroup) {
+    const eligible = await isCandidateInAudience(user, drive);
+    if (!eligible) {
         return res.status(403).json({ message: 'You are not eligible for this drive' });
     }
 
@@ -92,14 +95,13 @@ async function getCampusDriveById(req, res) {
     });
 }
 
-// respond interested / not_interested — blocked once the deadline passes / closed
 async function respondToDrive(req, res) {
     const { response } = req.body;
     if (!['interested', 'not_interested'].includes(response)) {
         return res.status(400).json({ message: 'Response must be "interested" or "not_interested"' });
     }
 
-    const user = await userModel.findById(req.user.id).select('college name');
+    const user = await userModel.findById(req.user.id).select('college name placementGroup');
     if (!user || !user.college) {
         return res.status(403).json({ message: 'You are not linked to any college' });
     }
@@ -109,9 +111,8 @@ async function respondToDrive(req, res) {
         return res.status(404).json({ message: 'Drive not found' });
     }
 
-    // eligibility check — candidate must belong to the drive's target group
-    const inGroup = await studentGroupModel.exists({ _id: drive.targetGroup, students: user._id });
-    if (!inGroup) {
+    const eligible = await isCandidateInAudience(user, drive);
+    if (!eligible) {
         return res.status(403).json({ message: 'You are not eligible for this drive' });
     }
 
@@ -127,7 +128,6 @@ async function respondToDrive(req, res) {
         { new: true, upsert: true, setDefaultsOnInsert: true }
     );
 
-    // confirmation: DB notification + realtime socket
     const message = `Your response (${response.replace('_', ' ')}) to ${drive.title} (${drive.company}) was recorded.`;
     await notificationModel.create({
         user: user._id,
