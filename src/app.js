@@ -1,4 +1,5 @@
 const express = require('express');
+const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const authRoutes = require('./routes/auth.routes');
 const jobRoutes = require('./routes/job.routes');
@@ -15,11 +16,27 @@ const placementGroupRoutes = require('./routes/Placementgroup.routes');
 const { errorHandler } = require('./middlewares/errorHandler');
 
 const app = express();
+
+// -----to connect to frontend-----
+// CORS must come before routes — allows the Vite dev frontend to call this API
+// and send/receive the httpOnly auth cookie (credentials: true)
+app.use(cors({
+  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  credentials: true
+}));
+
+
+// ---------------------------------------------------------------------
+
+
+
 app.use(express.json());
 app.use(cookieParser());
 
 // simple health check
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
+
+
 
 // ── Off-campus (existing) ───────────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
