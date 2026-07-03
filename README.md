@@ -1,11 +1,24 @@
-# HireSync - Backend
+# HireSync — Backend
 
-A REST API built with Node.js, Express and MongoDB.
+A production-style REST API for campus & off-campus recruitment, built with **Node.js, Express, and MongoDB**.
 
-It covers two worlds in one platform:
+One platform, two hiring worlds:
 
 - **Off-campus** — recruiters post jobs, candidates self-register, upload resumes (skills auto-extracted), get match-scored recommendations, apply, and get accept/reject notifications.
-- **On-campus** — colleges register, an admin verifies them, a TPO imports students from Excel/CSV, builds filtered student groups, posts campus drives to a group, students respond before a deadline, and the TPO downloads a PDF report and views placement analytics.
+- **On-campus** — colleges register, an admin verifies them, a TPO imports students from Excel/CSV, organizes them into placement groups, posts campus drives, students respond before a deadline, and the TPO downloads a PDF report and views placement analytics.
+
+Built incrementally across 6 phases — error handling, validation, and resume parsing; a skill-matching recommendation engine; a full campus placement module with real-time notifications; analytics; and a manually-managed placement-group system layered on top without breaking anything that shipped before it.
+
+## Highlights
+
+- 🔍 **Skill-based matching engine** — bidirectional: candidates get ranked job recommendations, recruiters get ranked candidate shortlists, both from one shared `matchScore` utility.
+- 📄 **Resume parsing** — upload a PDF, skills are extracted and saved automatically.
+- 🏫 **Full campus placement workflow** — college onboarding → admin verification → student import → group management → drive posting → student response → PDF report → analytics.
+- 🧑‍🤝‍🧑 **Two group models, on purpose** — legacy filter-based `StudentGroup`s (auto-populated by CGPA/branch/skills) coexist with manually-managed `PlacementGroup`s (one group per student, TPO-controlled assignment), so existing drives keep working while new ones get precise, manual targeting.
+- ⚡ **Real-time notifications** — Socket.IO events for drive announcements, response confirmations, and application status changes, every one backed by a persisted notification so nothing is lost if the client was offline.
+- 🚀 **Transparent caching** — Redis speeds up hot read paths (`X-Cache: HIT/MISS`) and never blocks the app if it's unavailable.
+- 📊 **Analytics for both sides** — recruiter hiring-funnel dashboard, TPO placement-rate dashboard.
+- ✅ **Defensive by default** — `asyncHandler` + a global error handler covering Mongoose, JWT, Multer and duplicate-key errors; field-level validation on every write route.
 
 ## Stack
 - Node.js + Express
@@ -43,7 +56,7 @@ npm run dev
 | Role | Can do |
 |------|--------|
 | `admin` | verify colleges, manage users/jobs |
-| `tpo` | belongs to one college: import students, build groups, run drives |
+| `tpo` | belongs to one college: import students, manage groups, run drives |
 | `recruiter` | post off-campus jobs, manage applications |
 | `candidate` | imported (on-campus) or self-registered (off-campus) |
 
@@ -119,7 +132,7 @@ npm run dev
 
 Sheet columns: `name | email | roll_no | branch | cgpa | skills` (`skills` comma-separated).
 
-### TPO — Student Groups
+### TPO — Student Groups (legacy, filter-based)
 | Method | Route | Access | Description | Validated |
 |--------|-------|--------|-------------|-----------|
 | POST | /api/tpo/groups | tpo | Create a group with filters `{ minCgpa, branches[], skills[] }` → auto-populates matching students | ✅ name |
@@ -127,26 +140,52 @@ Sheet columns: `name | email | roll_no | branch | cgpa | skills` (`skills` comma
 | GET | /api/tpo/groups/:id | tpo | Get a group + its student list | — |
 | PUT | /api/tpo/groups/:id | tpo | Update filters → re-runs the query and re-populates the group | — |
 
-Filter semantics: `cgpa ≥ minCgpa`, `branch ∈ branches` (case-insensitive), student has **all** listed `skills`.
+Filter semantics: `cgpa ≥ minCgpa`, `branch ∈ branches` (case-insensitive), student has **all** listed `skills`. This model is kept fully working for backward compatibility — see [Placement Groups](#placement-groups-manual-tpo-managed) below for the newer, manually-managed alternative.
+
+### Placement Groups (manual, TPO-managed)
+| Method | Route | Access | Description | Validated |
+|--------|-------|--------|-------------|-----------|
+| POST | /api/placement-groups | tpo | Create a placement group (`name`, optional `description`) — name must be unique within the college | ✅ name |
+| GET | /api/placement-groups | tpo | List all placement groups of this college, with a live `studentCount` per group | — |
+| GET | /api/placement-groups/:id | tpo | Get a group + its current member list | ✅ valid group id |
+| PUT | /api/placement-groups/:id | tpo | Rename / update description (checked for name collisions) | ✅ valid group id |
+| DELETE | /api/placement-groups/:id | tpo | Delete a group — every member is automatically vacated (`placementGroup` cleared) first | ✅ valid group id |
+| POST | /api/placement-groups/:id/students | tpo | Assign one student into this group — auto-removes them from any previous group | ✅ studentId |
+| DELETE | /api/placement-groups/:id/students/:studentId | tpo | Remove one student from this group | ✅ valid ids |
+| POST | /api/placement-groups/:id/students/bulk | tpo | Bulk-assign multiple students into this group in one call | ✅ studentIds[] |
+| POST | /api/placement-groups/students/bulk-remove | tpo | Bulk-remove multiple students from whatever group they're in | ✅ studentIds[] |
+| POST | /api/placement-groups/move | tpo | Move a student who's already in a group to a different one | ✅ studentId, toGroupId |
+| GET | /api/placement-groups/my-group | candidate | Read-only — a student checks their own placement group (or a "no group assigned" message) | — |
 
 ### TPO — Campus Drives
 | Method | Route | Access | Description | Validated |
 |--------|-------|--------|-------------|-----------|
-| POST | /api/tpo/drives | tpo | Post a drive to a group → notifies every student in it (DB notification + Socket.IO). Requires a verified college | ✅ company, title, targetGroup, deadline |
+| POST | /api/tpo/drives | tpo | Post a drive targeting **one legacy `StudentGroup`**, **one or more `PlacementGroup`s**, or **all students in the college** — notifies every student in the resolved audience (DB notification + Socket.IO). Requires a verified college | ✅ company, title, targetType, deadline (+ targeting fields below) |
 | GET | /api/tpo/drives | tpo | List all drives of this college — `status` is auto-managed (always `closed` past the deadline) | — |
 | GET | /api/tpo/drives/:id | tpo | Get a drive's details + a response summary (interested / not interested / no response) | — |
-| PUT | /api/tpo/drives/:id | tpo | Update drive details | — |
+| PUT | /api/tpo/drives/:id | tpo | Update drive details, including re-targeting (`targetType`, `targetGroup` or `targetPlacementGroups`) | — |
 | PUT | /api/tpo/drives/:id/status | tpo | Manually set status (`upcoming` / `ongoing` / `closed`) before the deadline | — |
-| GET | /api/tpo/drives/:id/report | tpo | Download a PDF report of every targeted student's response |
-| GET | /api/tpo/analytics | tpo | College placement stats: drives, responses, interested %, branch breakdown, top skills |
+| GET | /api/tpo/drives/:id/report | tpo | Download a PDF report of every targeted student's response | — |
+| GET | /api/tpo/analytics | tpo | College placement stats: drives, responses, interested %, branch breakdown, top skills | — |
+
+**Targeting a drive** (`targetType`, on create/update):
+| `targetType` | Extra field required | Audience |
+|---|---|---|
+| `studentGroup` (default) | `targetGroup` (one `StudentGroup` id) | that group's auto-populated `students[]` — legacy behavior, unchanged |
+| `placementGroup` | `targetPlacementGroups` (array of `PlacementGroup` ids) | every candidate currently assigned to **any** of those groups |
+| `all` | none | every candidate (`role: 'candidate'`) in the college |
+
+Resolving "who's actually in the audience" for notifications, reports, and eligibility checks always goes through the single `utils/driveAudience.js` helper, so all three consumers agree on the same rule.
 
 ### Campus (student side)
 | Method | Route | Access | Description |
 |--------|-------|--------|-------------|
-| GET | /api/campus/drives | candidate | Feed of drives for groups this student belongs to, eligibility-filtered. **Cached 60s** per college+user |
+| GET | /api/campus/drives | candidate | Feed of drives targeting the student's own placement group (or targeted at `all`), eligibility-filtered. **Cached 60s** per college+user | — |
 | GET | /api/campus/drives/:id | candidate | Single drive's details (eligibility-checked) + my own response |
 | POST | /api/campus/drives/:id/respond | candidate | Respond `interested` / `not_interested` — blocked once closed or past the deadline |
 | PUT | /api/campus/profile | candidate | Update resume + skills only (name/email/rollNo/branch/cgpa stay locked); flips `profileComplete` once both are set |
+
+Legacy `studentGroup`-targeted drives are still fully manageable on the TPO side (notifications, reports, analytics all resolve them correctly), but the student-facing feed and eligibility checks now key off a student's single `placementGroup` — see [Placement Groups](#placement-groups-manual-tpo-managed) and [Two Group Systems](#two-group-systems-legacy-studentgroup-vs-placementgroup) below for why both exist.
 
 ### Notifications
 | Method | Route | Access | Description |
@@ -188,14 +227,28 @@ Filter semantics: `cgpa ≥ minCgpa`, `branch ∈ branches` (case-insensitive), 
    - An `email` that already exists in the database is **linked** to the importing college (not recreated) — their `rollNo`/`branch`/`cgpa` are updated and skills are merged, but no new account or email is sent.
    - A brand-new `email` gets a new candidate account with a random temporary password and is queued for a credentials email.
 6. **Batch email sending:** all queued credential emails are sent through `sendBatchEmails(messages, chunkSize = 50)`, which chunks the list and fires each chunk with `Promise.allSettled` so one bad address never blocks the rest. The response includes a `{ total, sent, failed }` summary.
-7. The endpoint responds with a `summary` (totalRows / created / linked / skipped / errors) and an `emails` summary in one shot.
+7. The endpoint responds with a `summary` (totalRows / created / linked / skipped / errors) and an `emails` summary in one shot. Imported students start with no placement group — a TPO assigns them via the Placement Groups API afterward.
+
+## Two Group Systems: legacy `StudentGroup` vs. `PlacementGroup`
+
+HireSync intentionally ships **two different, coexisting group concepts** rather than merging them, because they solve different problems and merging them would have quietly broken existing drives:
+
+| | `StudentGroup` (legacy) | `PlacementGroup` (current) |
+|---|---|---|
+| Membership | **Auto-populated** by filters (`minCgpa`, `branches[]`, `skills[]`) — re-run on every filter update | **Manually assigned** by the TPO, one student at a time or in bulk |
+| A student can belong to | Any number of groups | **At most one** group at a time (enforced on `User.placementGroup`, the single source of truth) |
+| A drive can target | Exactly one `StudentGroup` | One **or more** `PlacementGroup`s, or **all** students in the college |
+| Still usable? | ✅ Yes — fully supported for creating drives, notifications, reports and analytics | ✅ Yes — the primary way to target drives going forward |
+| Surfaced on the student feed? | No longer directly (existing `studentGroup`-targeted drives still notify their members on creation, but the feed/eligibility logic now keys off `placementGroup`) | Yes |
+
+**Why not just extend `StudentGroup`?** Its membership is *derived* (re-computed from filters on every update) while `PlacementGroup` membership is *authoritative* (whatever the TPO explicitly set). Trying to express both in one model would have meant either breaking the "one group per student" guarantee or breaking the existing filter-based auto-population that current drives, reports, and analytics already depend on. Keeping them separate — with a single `CampusDrive.targetType` discriminator (`studentGroup` / `placementGroup` / `all`) and one shared `utils/driveAudience.js` helper resolving the actual audience for every consumer (notifications, the student feed, the report, eligibility checks) — meant zero downtime for existing drives while adding the new, more precise workflow cleanly on top.
 
 ## How Student Groups & Campus Drives Work
 
-1. A TPO creates a `StudentGroup` with optional filters (`minCgpa`, `branches[]`, `skills[]`). The group is **auto-populated** at creation time by running those filters against the college's imported students — no manual student picking.
-2. Updating a group's filters (`PUT /api/tpo/groups/:id`) re-runs the query and re-populates the `students` list from scratch.
-3. A TPO posts a `CampusDrive` to one of their groups (`POST /api/tpo/drives`). The college must already be admin-verified, or the request is rejected.
-4. On posting, every student currently in the target group gets:
+1. **Legacy path:** A TPO creates a `StudentGroup` with optional filters (`minCgpa`, `branches[]`, `skills[]`). The group is **auto-populated** at creation time by running those filters against the college's imported students — no manual student picking. Updating a group's filters (`PUT /api/tpo/groups/:id`) re-runs the query and re-populates the `students` list from scratch.
+2. **Current path:** A TPO creates one or more `PlacementGroup`s and manually assigns students into them (single, bulk, or move operations) via the Placement Groups API. Every student sits in at most one group.
+3. A TPO posts a `CampusDrive` (`POST /api/tpo/drives`) targeting a legacy group (`targetType: 'studentGroup'`), one or more placement groups (`targetType: 'placementGroup'`), or every student in the college (`targetType: 'all'`). The college must already be admin-verified, or the request is rejected.
+4. On posting, every student in the resolved audience gets:
    - a `Notification` document (visible via `GET /api/notifications`), and
    - a realtime `drive:new` event pushed over Socket.IO straight to their personal room (`user:<id>`), plus a broadcast to the whole college room (`college:<id>`).
 5. Students connect to Socket.IO using the same JWT as the REST API (via the cookie or an explicit `auth.token`), and are auto-joined to their personal + college rooms on connect.
@@ -210,9 +263,9 @@ Filter semantics: `cgpa ≥ minCgpa`, `branch ∈ branches` (case-insensitive), 
 
 **Profile completion flag** — `PUT /api/campus/profile` recomputes `user.profileComplete` after every update: `true` once both `resumeUrl` and at least one skill are present, `false` otherwise.
 
-**Campus drive feed** — `GET /api/campus/drives` returns only drives whose `targetGroup` the student actually belongs to (eligibility-filtered), each annotated with the student's own response if they've made one.
+**Campus drive feed** — `GET /api/campus/drives` returns only drives whose resolved audience the student actually belongs to (their `placementGroup`, or drives targeted at `all`), each annotated with the student's own response if they've made one.
 
-**PDF report** — `GET /api/tpo/drives/:id/report` streams an A4 landscape PDF (built with `pdfkit`, no temp files) listing every targeted student's name / roll no / branch / CGPA / skills / response, with automatic pagination.
+**PDF report** — `GET /api/tpo/drives/:id/report` streams an A4 landscape PDF (built with `pdfkit`, no temp files) listing every audience student's name / roll no / branch / CGPA / skills / response, with automatic pagination — resolved through the same `driveAudience` helper regardless of targeting mode.
 
 **Redis caching** — `config/redis.js` connects lazily and never blocks the app: if Redis is down, `middlewares/cache.middleware.js` just passes every request straight through (the API is identical with or without it). Cached routes:
 
@@ -221,7 +274,7 @@ Filter semantics: `cgpa ≥ minCgpa`, `branch ∈ branches` (case-insensitive), 
 | `GET /api/jobs` | 60s | any job create/update/delete |
 | `GET /api/jobs/:id` | 60s | that job's update/delete |
 | `GET /api/jobs/recommended` | 120s | any job create (broad invalidation) |
-| `GET /api/campus/drives` | 60s, per college+user | a drive being posted/updated/status-changed for that college |
+| `GET /api/campus/drives` | 60s, per college+user | a drive being posted/updated/status-changed for that college, **or** that one student's placement group changing (assign/move/remove/delete-group) |
 
 A `X-Cache: HIT`/`MISS` response header is set on every cached route so you can see it working. If Redis is unavailable, every request is a cache miss and the API behaves normally.
 
@@ -231,7 +284,7 @@ Connect with the JWT cookie, or `io(url, { auth: { token } })`. Each socket join
 
 | Event | To | When |
 |-------|----|------|
-| `drive:new` | group students + college room | a drive is posted |
+| `drive:new` | resolved audience + college room | a drive is posted (any targeting mode) |
 | `drive:response:confirmed` | the responding student | response recorded |
 | `application:new` | the recruiter | a candidate applies |
 | `application:status` | the candidate | recruiter accepts/rejects |
@@ -271,11 +324,24 @@ Every realtime event is backed by a persisted `Notification` document, so nothin
 | address | Optional |
 | website | Optional, must be a valid URL if provided |
 
-### Create Group (`POST /api/tpo/groups`)
+### Create Group — legacy `StudentGroup` (`POST /api/tpo/groups`)
 | Field | Rule |
 |-------|------|
 | name | Required |
 | filters | Optional, must be an object if provided |
+
+### Create Placement Group (`POST /api/placement-groups`)
+| Field | Rule |
+|-------|------|
+| name | Required, min 2 characters, unique within the college |
+| description | Optional |
+
+### Assign / Move / Bulk Student Operations (`/api/placement-groups/*`)
+| Field | Rule |
+|-------|------|
+| studentId | Required, must be a valid Mongo id |
+| studentIds | Required (bulk routes), must be a non-empty array of valid Mongo ids |
+| toGroupId | Required (move route), must be a valid Mongo id |
 
 ### Create Drive (`POST /api/tpo/drives`)
 | Field | Rule |
@@ -284,25 +350,28 @@ Every realtime event is backed by a persisted `Notification` document, so nothin
 | title | Required |
 | description | Optional |
 | jd | Optional |
-| targetGroup | Required, must be a valid group id |
+| targetType | Optional, one of `studentGroup` / `placementGroup` / `all` (defaults to `studentGroup`) |
+| targetGroup | Required **only** when `targetType` is `studentGroup`, must be a valid group id |
+| targetPlacementGroups | Required **only** when `targetType` is `placementGroup`, non-empty array of valid group ids |
 | deadline | Required, valid ISO8601 date |
 
 ## Project Structure
 ```
 src/
-├── app.js                 # express app + route mounting
-├── config/                # cloudinary, multer (pdf + excel), redis, socket
-├── controllers/           # auth, job, application, recommendation, resume, candidate,
-│                          # admin, college, tpo, campus, notification, analytics
-├── db/db.js               # mongoose connection
-├── middlewares/           # auth (incl. authTPO), cache, validate, errorHandler
-├── models/                # user, job, application, college, studentGroup,
-│                          # campusDrive, driveResponse, notification
-├── routes/                # one router per domain
-├── utils/                 # matchScore, skillExtractor, sendEmail (+batch),
-│                          # cacheKeys, generatePDF, driveStatus
-└── validators/            # auth, job, college, drive
-server.js                  # http server + Socket.IO + Redis bootstrap
+├── app.js                      # express app + route mounting
+├── config/                     # cloudinary, multer (pdf + excel), redis, socket
+├── controllers/                # auth, job, application, recommendation, resume, candidate,
+│                                # admin, college, tpo, campus, notification, analytics,
+│                                # placementGroup
+├── db/db.js                    # mongoose connection
+├── middlewares/                # auth (incl. authTPO, authCandidate), cache, validate, errorHandler
+├── models/                     # user, job, application, college, studentGroup, placementGroup,
+│                                # campusDrive, driveResponse, notification
+├── routes/                     # one router per domain, incl. placementGroup.routes.js
+├── utils/                      # matchScore, skillExtractor, sendEmail (+batch),
+│                                # cacheKeys, generatePDF, driveStatus, driveAudience
+└── validators/                 # auth, job, college, drive, placementGroup
+server.js                       # http server + Socket.IO + Redis bootstrap
 ```
 
 ## Progress
@@ -405,6 +474,38 @@ Both sat directly in the path of newly-built features, so they were fixed rather
 1. `GET /api/jobs/:id` was a stub that always threw — fixed when Phase 4.3 added caching to it.
 2. `/api/admin/*` was accidentally wired to duplicate the job routes instead of the admin controller — fixed when Phase 5 wired up the admin overview.
 
+## Phase 6 — Manual Placement Groups ✅
+
+The existing filter-based `StudentGroup` model auto-populates membership from CGPA/branch/skills and lets a drive target exactly one group. A newer requirement called for something with different semantics entirely — **manual** student assignment, **one group per student**, and drives that can target **multiple groups or the whole college at once**. Rather than force those semantics onto the existing model (which would have broken every drive, report, and analytics query that reads `targetGroup` today), this was scoped as its own phase, starting with a design decision before any code was written.
+
+### Phase 6.1 — Analysis & Schema Design ✅
+- [x] **Decision: new `PlacementGroup` model, coexisting with the old `StudentGroup`.** The old model's membership is *derived* (re-computed from filters); the new model's membership is *authoritative* (whatever the TPO explicitly set) — trying to merge the two would have meant sacrificing one property or the other.
+- [x] **Decision: `CampusDrive` gets a `targetType` discriminator** (`studentGroup` default / `placementGroup` / `all`), with `targetGroup` now conditionally required only for the legacy case and a new `targetPlacementGroups[]` array for the new case. Existing drives are untouched — they were persisted without a `targetType`, which defaults to `studentGroup` and continues resolving through `targetGroup` exactly as before.
+- [x] **Decision: "one group per student" lives on `User.placementGroup`.** A single ref field, enforced with one `findOneAndUpdate`-style save on assign/move, no join required to check it — the natural minimal-change option.
+- [x] **Migration note:** no destructive changes. Every field added (`targetType`, `targetPlacementGroups`, `User.placementGroup`, `User.placementGroupAssignedAt`) is additive with safe defaults; nothing existing was renamed, removed, or required to be re-saved.
+- [x] Files touched in the phases that followed: `models/Placementgroup.model.js` (new), `models/user.model.js` (additive fields), `models/campusDrive.model.js` (additive fields), `controllers/Placementgroup.controller.js` (new), `controllers/tpo.controller.js` (drive targeting), `controllers/campus.controller.js` (feed/eligibility), `validators/Placementgroup.validator.js` (new), `validators/drive.validator.js` (conditional targeting rules), `routes/Placementgroup.routes.js` (new), `utils/driveAudience.js` (new), `utils/cacheKeys.js` (per-student invalidation), `app.js` (new mount point).
+
+### Phase 6.2 — Group CRUD + Student Assignment (TPO-side) ✅
+- [x] `PlacementGroup` model — `college`, `name` (unique per college), `description`, `createdBy`; intentionally has **no** embedded `students[]` array, since `User.placementGroup` is the single source of truth and keeping both would risk drift
+- [x] `placementGroup.controller.js` — `createGroup`, `getGroups` (with a live per-group `studentCount` aggregated straight from `User`), `getGroupById`, `updateGroup`, `deleteGroup`
+- [x] Student assignment — `assignStudent`, `removeStudent`, `moveStudent`, `bulkAssignStudents`, `bulkRemoveStudents`, all funnelled through one `reassignStudent()` helper so "vacate the old group, set the new one, bust that student's cache" only has one implementation to get right
+- [x] Single-group-per-student enforced atomically on every assign/move — no student is ever briefly in two groups or left in a stale one
+- [x] Deleting a group first vacates every member (`placementGroup: null`) before removing the group document, so no student is ever left pointing at a group that no longer exists
+- [x] `placementGroup.validator.js` — name/description rules, Mongo-id param checks, non-empty array checks for bulk operations
+- [x] Routes mounted at `/api/placement-groups`, gated by the existing `authMiddleware.authTPO`
+
+### Phase 6.3 — Drive Posting Integration ✅
+- [x] `CampusDrive.targetType` (`studentGroup` / `placementGroup` / `all`) added alongside the original `targetGroup`, which is now conditionally required only when `targetType === 'studentGroup'`
+- [x] New `targetPlacementGroups[]` field, populated only when `targetType === 'placementGroup'`
+- [x] `createDrive` / `updateDrive` (`tpo.controller.js`) and `createDriveValidator` (`drive.validator.js`) updated to branch on `targetType`, including re-targeting rules on update (switching modes clears out the fields that no longer apply, so a drive can never end up `all` with a stale `targetPlacementGroups` array)
+- [x] `utils/driveAudience.js` — the single place that resolves "who is this drive for," used by drive creation (notifications/sockets), the PDF report, and the student feed, so every consumer of "the audience" agrees on the same answer regardless of targeting mode
+
+### Phase 6.4 — Student-Side Visibility & `my-group` Endpoint ✅
+- [x] `campus.controller.js` (`resolveMembership`, `getCampusDrives`, `getCampusDriveById`, `respondToDrive`) now filters by the student's single `placementGroup` plus `all`-targeted drives, via `isCandidateInAudience` / `buildAudienceFilter`, replacing the old multi-group membership query
+- [x] `GET /api/placement-groups/my-group` — read-only, returns the student's group `id`/`name`/`description`/`assignedAt`, or a clear "no placement group assigned yet" message; gated by `authMiddleware.authCandidate` rather than the TPO-only guard the rest of the router uses
+- [x] `utils/cacheKeys.js` gained a per-student invalidator (`invalidators.studentCampusDrives`) so an assign/move/remove/group-delete busts exactly that one student's cached feed instead of the whole college's
+
 ## Notes
 - A full live run needs MongoDB (required) plus, optionally, Redis, SMTP, and Cloudinary credentials.
 - The on-campus build added `ioredis`, `socket.io`, `xlsx`, `pdfkit` on top of the original off-campus dependency set.
+- `StudentGroup` (filter-based) and `PlacementGroup` (manually-managed) are both live in the codebase by design — see [Two Group Systems](#two-group-systems-legacy-studentgroup-vs-placementgroup) for when each applies.
