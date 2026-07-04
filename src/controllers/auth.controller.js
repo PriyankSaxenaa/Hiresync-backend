@@ -131,8 +131,11 @@ async function registerUser(req, res) {
         college: user.college || null,
     }, process.env.JWT_SECRET);
 
-    res.cookie('token', token);
-
+    res.cookie('token', token, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'none'
+    });
     res.status(201).json({
         message: 'User registered successfully',
         user: {
@@ -169,7 +172,11 @@ async function loginUser(req, res) {
         college: user.college || null,
     }, process.env.JWT_SECRET);
 
-    res.cookie('token', token);
+    res.cookie('token', token, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'none'
+    });
 
     res.status(200).json({
         message: 'User logged in successfully',
@@ -183,7 +190,11 @@ async function loginUser(req, res) {
 }
 
 async function logoutUser(req, res) {
-    res.clearCookie('token');
+    res.clearCookie('token', {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'none'
+    });
     res.status(200).json({
         message: 'User logged out successfully'
     });
