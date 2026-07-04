@@ -1,4 +1,3 @@
-
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const xlsx = require('xlsx');
@@ -19,12 +18,23 @@ const { invalidators } = require('../utils/cacheKeys');
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
-// Resolve the college owned by the requesting TPO. Returns the college doc or
-// sends a 4xx and returns null (caller should bail when null).
+// Resolve the college owned by the requesting TPO AND enforce that it's been
+// verified by an admin. Every TPO action (students, groups, drives, analytics)
+// routes through this one function, so this is the single choke point that
+// blocks an unverified TPO from doing anything except registering/checking
+// their college's status (that flow uses collegeController.getCollegeById
+// directly, not this helper, so it's unaffected).
+//
+// Returns the college doc or sends a 4xx and returns null (caller should bail
+// when null).
 async function resolveCollege(req, res) {
     const college = await collegeModel.findOne({ tpo: req.user.id });
     if (!college) {
         res.status(404).json({ message: 'No college registered for this TPO. Register a college first.' });
+        return null;
+    }
+    if (!college.isVerified) {
+        res.status(403).json({ message: 'Your college must be verified by an admin before you can perform this action.' });
         return null;
     }
     return college;
@@ -309,10 +319,8 @@ async function updateGroup(req, res) {
 async function createDrive(req, res) {
     const college = await resolveCollege(req, res);
     if (!college) return;
-
-    if (!college.isVerified) {
-        return res.status(403).json({ message: 'Your college must be verified by an admin before posting drives.' });
-    }
+    // note: verification is already enforced inside resolveCollege above,
+    // so no separate isVerified check is needed here anymore.
 
     const { company, title, description, jd, deadline } = req.body;
     const targetType = req.body.targetType || 'studentGroup';

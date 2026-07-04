@@ -1,5 +1,6 @@
 const userModel = require('../models/user.model');
 const jobModel = require('../models/job.model');
+const { emitToUser } = require('../config/socket');
 
 async function getAllUsers(req, res) {
     const users = await userModel.find().select('-password');
@@ -18,6 +19,13 @@ async function deleteUser(req, res) {
     if (!user) {
         return res.status(404).json({ message: 'User not found' });
     }
+
+    // real-time push — if this user has an active socket connection right
+    // now, they get logged out instantly. If they're offline, the auth
+    // middleware (see auth.middleware.js) catches it on their next request.
+    emitToUser(id, 'account:deleted', {
+        message: 'Your account has been deleted by an administrator.'
+    });
 
     res.status(200).json({
         message: 'User deleted successfully'
