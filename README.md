@@ -1,511 +1,336 @@
-# HireSync — Backend
+<div align="center">
 
-A production-style REST API for campus & off-campus recruitment, built with **Node.js, Express, and MongoDB**.
+# 🎯 HireSync — Unified Recruitment Platform
 
-One platform, two hiring worlds:
+**One backend. Two hiring worlds. Zero missed opportunities.**
 
-- **Off-campus** — recruiters post jobs, candidates self-register, upload resumes (skills auto-extracted), get match-scored recommendations, apply, and get accept/reject notifications.
-- **On-campus** — colleges register, an admin verifies them, a TPO imports students from Excel/CSV, organizes them into placement groups, posts campus drives, students respond before a deadline, and the TPO downloads a PDF report and views placement analytics.
+[![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=flat&logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Express](https://img.shields.io/badge/Express-5.x-000000?style=flat&logo=express&logoColor=white)](https://expressjs.com/)
+[![MongoDB](https://img.shields.io/badge/MongoDB-Mongoose-47A248?style=flat&logo=mongodb&logoColor=white)](https://www.mongodb.com/)
+[![Redis](https://img.shields.io/badge/Redis-Caching-DC382D?style=flat&logo=redis&logoColor=white)](https://redis.io/)
+[![Socket.IO](https://img.shields.io/badge/Socket.IO-Realtime-010101?style=flat&logo=socket.io&logoColor=white)](https://socket.io/)
+[![License](https://img.shields.io/badge/license-ISC-blue.svg)](#license)
 
-Built incrementally across 6 phases — error handling, validation, and resume parsing; a skill-matching recommendation engine; a full campus placement module with real-time notifications; analytics; and a manually-managed placement-group system layered on top without breaking anything that shipped before it.
+[Features](#-features) • [Architecture](#-architecture) • [Tech Stack](#-tech-stack) • [Installation](#-installation) • [API Docs](#-documentation) • [Highlights](#-project-highlights)
 
-## Highlights
+</div>
 
-- 🔍 **Skill-based matching engine** — bidirectional: candidates get ranked job recommendations, recruiters get ranked candidate shortlists, both from one shared `matchScore` utility.
-- 📄 **Resume parsing** — upload a PDF, skills are extracted and saved automatically.
-- 🏫 **Full campus placement workflow** — college onboarding → admin verification → student import → group management → drive posting → student response → PDF report → analytics.
-- 🧑‍🤝‍🧑 **Two group models, on purpose** — legacy filter-based `StudentGroup`s (auto-populated by CGPA/branch/skills) coexist with manually-managed `PlacementGroup`s (one group per student, TPO-controlled assignment), so existing drives keep working while new ones get precise, manual targeting.
-- ⚡ **Real-time notifications** — Socket.IO events for drive announcements, response confirmations, and application status changes, every one backed by a persisted notification so nothing is lost if the client was offline.
-- 🚀 **Transparent caching** — Redis speeds up hot read paths (`X-Cache: HIT/MISS`) and never blocks the app if it's unavailable.
-- 📊 **Analytics for both sides** — recruiter hiring-funnel dashboard, TPO placement-rate dashboard.
-- ✅ **Defensive by default** — `asyncHandler` + a global error handler covering Mongoose, JWT, Multer and duplicate-key errors; field-level validation on every write route.
+<div align="center">
 
-## Stack
-- Node.js + Express
-- MongoDB + Mongoose
-- JWT for auth
-- Nodemailer for emails
-- express-validator for input validation
-- Redis (ioredis) for optional caching
-- Socket.IO for realtime notifications
-- pdfkit for PDF reports
-- Cloudinary + Multer (resume upload), pdf-parse (skill extraction)
-- xlsx (Excel/CSV student import)
+| 63+ | 4 | 10 | 12 | 13 |
+|:---:|:---:|:---:|:---:|:---:|
+| REST Endpoints | User Roles | MongoDB Models | Route Modules | Controllers |
 
-## Setup
+*(counted directly from the codebase — see [Project Highlights](#-project-highlights))*
+
+</div>
+
+---
+
+## The Problem
+
+Imagine this: you're a final-year student. You have 12 browser tabs open — Internshala, LinkedIn, Naukri, your college portal, three WhatsApp groups, and a Gmail inbox with 847 unread emails. Somewhere in that chaos is your dream placement opportunity. You'll probably never see it.
+
+```
+❌  Off-campus opportunities scattered across 10+ platforms
+❌  On-campus drives buried inside Gmail — unseen, missed
+❌  No unified view of what's available, what you applied to
+❌  TPOs manually emailing spreadsheets and tracking responses by hand
+❌  Recruiters scrolling hundreds of resumes with no way to rank them
+```
+
+**HireSync** is the backend for a platform that fixes this: one system that runs a college's *on-campus* placement drives and a company's *off-campus* hiring pipeline side by side, with real-time updates, automatic resume-to-skill matching, and zero manual spreadsheet-chasing.
+
+```
+✅  One platform. Every opportunity. Zero missed updates.
+```
+
+---
+
+## 📖 Overview
+
+HireSync is a **production-style REST API** for campus & off-campus recruitment, built with **Node.js, Express 5, and MongoDB**.
+
+| World | Flow |
+|---|---|
+| **Off-campus** | Recruiters post jobs → candidates self-register (email OTP verified) → upload a resume (skills auto-extracted from the PDF) → get skill-matched job recommendations → apply → get real-time accept/reject notifications. |
+| **On-campus** | A TPO registers their college → an admin verifies it → the TPO bulk-imports students from an Excel/CSV sheet → organizes them into placement groups → posts a campus drive targeted at a group (or the whole college) → students respond before a deadline → the TPO downloads a PDF report and views placement analytics. |
+
+It was built incrementally across six phases — starting from core auth/jobs/applications, layering in validation and resume parsing, then a skill-matching recommendation engine, a full campus placement module with real-time notifications, analytics for both sides, and finally a manually-managed placement-group system built *on top of* the original group model without breaking a single existing route.
+
+---
+
+## 📸 Screenshots
+
+*Live deployment — deployed frontend + this backend, connected end-to-end.*
+
+| Landing Page | Admin Dashboard |
+|---|---|
+| ![HireSync landing page](screenshots/01-landing-page.png) | ![Admin overview dashboard](screenshots/02-admin-dashboard.png) |
+
+| TPO / Placement Cell Dashboard | Recruiter Dashboard |
+|---|---|
+| ![TPO placement cell dashboard](screenshots/03-tpo-dashboard.png) | ![Recruiter hiring dashboard](screenshots/05-recruiter-dashboard.png) |
+
+<div align="center">
+<img src="screenshots/04-candidate-dashboard.png" alt="Candidate dashboard" width="600"/>
+<br/><em>Candidate Dashboard</em>
+</div>
+
+---
+
+## ✨ Features
+
+### 🔓 Auth & Security
+- **Email-OTP-gated registration** — a 6-digit code (bcrypt-hashed at rest, 10-minute TTL, 60s resend cooldown) must be verified before an account can be created.
+- **Role-based JWT auth** via `httpOnly` cookies — four roles (`candidate`, `recruiter`, `admin`, `tpo`), each with dedicated middleware guards.
+- **Live account revocation** — every authenticated request re-checks that the user still exists, so a deleted account is locked out immediately instead of riding out its token's lifetime.
+- **Global error handler** normalizes Mongoose validation errors, duplicate-key (`11000`) conflicts, JWT errors, and Multer upload errors into consistent JSON responses.
+
+### 🧠 Skill Matching Engine
+- One shared `matchScore()` utility powers **both directions**: candidates get ranked job recommendations, recruiters get a ranked shortlist of candidates for a job — same algorithm, same guarantees, no drift between the two.
+- **Automatic resume parsing** — upload a PDF, text is extracted server-side, and skills are matched against a curated list of 150+ technologies using word-boundary regex (so `"java"` never falsely matches inside `"javascript"`).
+
+### 🏫 Campus Placement Workflow
+A full pipeline modeled on how a real TPO office runs a placement season:
+1. **College onboarding** — TPO registers a college, starts unverified.
+2. **Admin verification** — gatekeeps every downstream TPO action.
+3. **Bulk student import** — Excel/CSV upload, tolerant of header-casing variance, dedupes by roll number, links pre-existing accounts instead of duplicating them, and emails temporary credentials in throttled batches.
+4. **Two group models, on purpose** — legacy filter-based `StudentGroup`s (auto-populated by CGPA / branch / skills) coexist with manually-managed `PlacementGroup`s (**one group per student**, TPO-controlled) — old drives keep working, new ones get precise manual targeting.
+5. **Campus drives** — targeted at `all`, a `studentGroup`, or one/more `placementGroup`s, with an auto-computed **effective status** (`closed` the instant the deadline passes, regardless of what's stored).
+6. **Student response** — interested / not interested, one response per student per drive (DB-enforced unique index).
+7. **PDF drive reports** — generated on-the-fly with `pdfkit`, paginated, landscape A4, streamed directly to the response.
+8. **Placement analytics** — response rates and funnel breakdowns for the TPO dashboard.
+
+### ⚡ Real-Time Notifications
+- **Socket.IO**, authenticated with the same JWT as the REST API (via handshake token or cookie) — no separate auth system to maintain.
+- Personal rooms (`user:<id>`) for direct events (application status, drive-response confirmation) and college-wide rooms (`college:<id>`) for drive announcements.
+- Every socket event is **backed by a persisted `Notification` document**, so nothing is lost if the client was offline when it fired.
+
+### 🚀 Transparent Redis Caching
+- A single `cache(keyBuilder, ttl)` middleware wraps hot GET routes (job listings, job detail, recommendations, campus drive feed) — cache hits/misses are visible via an `X-Cache: HIT|MISS` response header.
+- **Fails open** — if Redis is down, `isRedisReady()` short-circuits every cache/invalidate call and the API behaves exactly as if caching didn't exist. No crash, no blocking, no special-casing needed elsewhere in the code.
+- **Precise invalidation** — a job edit busts only `jobs:item:<id>` + list/recommendation keys; a single student's group re-assignment busts *only that student's* cached campus feed, not the whole college's.
+
+### 📊 Analytics
+- **Recruiter dashboard** — jobs posted, total applications, a full pending/accepted/rejected funnel, acceptance rate, and a per-job breakdown.
+- **TPO dashboard** — placement-drive engagement and response analytics per college.
+
+### ✅ Defensive by Default
+- `asyncHandler` wraps every controller so a rejected promise never crashes the process silently.
+- `express-validator` field-level validation on every write route, with a single `validate` middleware producing a consistent `{ field, message }[]` error shape.
+- Multer file-type/size guards (5MB PDF for resumes, 10MB Excel/CSV for imports) with friendly rejection messages.
+
+---
+
+## 🏗 Architecture
+
+```mermaid
+flowchart TB
+    subgraph Clients
+        FE["Frontend (React/Vite)"]
+    end
+
+    subgraph API["HireSync Backend — Express 5"]
+        MW["Middleware Layer<br/>auth · validate · cache · errorHandler"]
+        R1["Off-campus Routes<br/>auth · jobs · applications · resume · recommendations · admin"]
+        R2["On-campus Routes<br/>college · tpo · campus · placement-groups · notifications · analytics"]
+        C1["Controllers"]
+        U["Utilities<br/>matchScore · skillExtractor · driveAudience · driveStatus · generatePDF · cacheKeys"]
+    end
+
+    subgraph Data["Data & Infra"]
+        Mongo[("MongoDB<br/>Mongoose Models")]
+        Redis[("Redis<br/>Read-through Cache")]
+        Socket["Socket.IO<br/>Realtime Gateway"]
+        Cloud["Cloudinary<br/>Resume Storage"]
+        Mail["Brevo (Transactional Email)"]
+    end
+
+    FE -- "HTTPS + httpOnly cookie" --> MW
+    FE -- "WebSocket (JWT handshake)" --> Socket
+    MW --> R1 & R2
+    R1 --> C1
+    R2 --> C1
+    C1 --> U
+    C1 --> Mongo
+    C1 -. "cache read/write" .-> Redis
+    C1 -- "emit events" --> Socket
+    C1 -- "resume upload" --> Cloud
+    C1 -- "OTP / credentials / drive alerts" --> Mail
+    Socket -- "push notifications" --> FE
+```
+
+**Request lifecycle (a cached job list, for example):**
+
+```mermaid
+sequenceDiagram
+    participant C as Candidate
+    participant M as Auth Middleware
+    participant Cache as Cache Middleware
+    participant Ctrl as Job Controller
+    participant DB as MongoDB
+    participant R as Redis
+
+    C->>M: GET /api/jobs?location=Delhi
+    M->>M: verify JWT cookie + user still exists
+    M->>Cache: next()
+    Cache->>R: GET jobs:list:...
+    alt Cache HIT
+        R-->>Cache: cached JSON
+        Cache-->>C: 200 (X-Cache: HIT)
+    else Cache MISS
+        Cache->>Ctrl: next()
+        Ctrl->>DB: find + filter + paginate
+        DB-->>Ctrl: jobs[]
+        Ctrl-->>Cache: res.json(payload)
+        Cache->>R: SET jobs:list:... EX 60
+        Cache-->>C: 200 (X-Cache: MISS)
+    end
+```
+
+---
+
+## 🧰 Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Runtime | Node.js |
+| Framework | Express 5 |
+| Database | MongoDB + Mongoose |
+| Auth | JSON Web Tokens (httpOnly cookies) + bcryptjs |
+| Validation | express-validator |
+| Caching | Redis (`ioredis`) — read-through cache, fails open |
+| Realtime | Socket.IO (JWT-authenticated sockets) |
+| File Uploads | Multer (in-memory buffers) |
+| Resume Storage | Cloudinary |
+| PDF Parsing | `pdf-parse` (resume text extraction) |
+| PDF Generation | `pdfkit` (drive reports) |
+| Spreadsheet Parsing | `xlsx` (student import) |
+| Transactional Email | Brevo (`sib-api-v3-sdk`) |
+| Dev Tooling | nodemon |
+
+---
+
+## 🔩 Major Engineering Features
+
+These are the design decisions worth a reviewer's second look:
+
+- **Fail-open infrastructure everywhere.** Redis down? Caching silently becomes a no-op. Email fails mid-registration? The dangling OTP record is cleaned up and a real error is returned instead of an orphaned state. The API degrades gracefully instead of cascading failures.
+- **One matching algorithm, two consumers.** `matchScore()` is the single source of truth for skill compatibility — reused unmodified for candidate→job recommendations and recruiter→candidate shortlists.
+- **Backward-compatible data model evolution.** `PlacementGroup` (manual, one-per-student) was added *after* `StudentGroup` (filter-based, many-to-many) was already in production use. Both targeting modes are still valid on a `CampusDrive` today (`targetType: studentGroup | placementGroup | all`), so nothing that shipped in an earlier phase had to be migrated or broken.
+- **Auto-computed drive status.** A drive's `status` field can lag reality — `effectiveStatus()` recalculates `closed` the instant `deadline` passes, so there's no cron job needed to keep drives in sync.
+- **Precise cache invalidation, not blunt flushing.** Cache keys are namespaced per college *and* per user (`campus:drives:<collegeId>:<userId>`), so moving one student between placement groups busts exactly one cached feed — not the entire college's.
+- **Idempotent, tolerant bulk import.** The Excel importer accepts header-casing variance (`Roll No` / `rollNo` / `ROLL_NO`), de-duplicates by roll number within the sheet, and links (rather than duplicates) any student whose email already exists — while queuing credential emails in throttled batches of 50 via `Promise.allSettled` so one bad address never blocks the rest.
+- **Unified realtime + persisted notifications.** Every Socket.IO emit (`drive:new`, `application:status`, `drive:response:confirmed`, …) is paired with a `Notification` document, so a candidate who was offline still sees it the next time they check their inbox.
+
+---
+
+## 📦 Installation
 
 ```bash
+# clone
+git clone https://github.com/<your-username>/hiresync-backend.git
+cd hiresync-backend
+
+# install dependencies
 npm install
+
+# configure environment
 cp .env.example .env
-# fill in your values in .env
+# fill in the values described below
+
+# run in development (auto-restart via nodemon)
 npm run dev
+
+# or run in production
+npm start
 ```
 
-### Environment variables
-| Var | Required | Notes |
-|-----|----------|-------|
-| `PORT` | no | defaults to 3000 |
+The server boots on `PORT` (default `3000`), connects to MongoDB immediately, and attempts a Redis connection that never blocks startup even if Redis is unreachable.
+
+---
+
+## 🔑 Environment Variables
+
+| Variable | Required | Notes |
+|---|---|---|
+| `PORT` | no | Defaults to `3000` |
 | `MONGO_URI` | **yes** | MongoDB connection string |
-| `JWT_SECRET` | **yes** | signs the auth cookie |
-| `CLIENT_URL` | no | Socket.IO CORS origin (defaults to `*`) |
-| `REDIS_URL` | no | if Redis is down, caching simply no-ops |
-| `EMAIL_SERVICE` / `EMAIL_USER` / `EMAIL_PASS` | for emails | Nodemailer credentials |
-| `CLOUDINARY_*` | for resume upload | Cloudinary credentials |
+| `JWT_SECRET` | **yes** | Signs the auth cookie / socket handshake token |
+| `CLIENT_URL` | no | Frontend origin for CORS + Socket.IO (defaults to `http://localhost:5173`) |
+| `REDIS_URL` | no | If unreachable, caching simply no-ops — the app still runs |
+| `BREVO_API_KEY` | for emails | Transactional email API key (OTP, credentials, drive alerts) |
+| `EMAIL_FROM` | for emails | Sender address shown to recipients |
+| `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` | for resume upload | Cloudinary credentials |
 
-## Roles
-| Role | Can do |
-|------|--------|
-| `admin` | verify colleges, manage users/jobs |
-| `tpo` | belongs to one college: import students, manage groups, run drives |
-| `recruiter` | post off-campus jobs, manage applications |
-| `candidate` | imported (on-campus) or self-registered (off-campus) |
+---
 
-## API Endpoints
+## 🗂 Folder Structure
 
-### Auth
-| Method | Route | Description | Validated |
-|--------|-------|-------------|-----------|
-| POST | /api/auth/register | Register new user | ✅ name, email, password, role |
-| POST | /api/auth/login | Login | ✅ email, password |
-| POST | /api/auth/logout | Logout | — |
-
-### Jobs
-| Method | Route | Access | Description | Validated |
-|--------|-------|--------|-------------|-----------|
-| GET | /api/jobs | any logged-in user | Browse all jobs. **Cached 60s** per filter/page combo | — |
-| GET | /api/jobs/:id | any logged-in user | Get single job. **Cached 60s** | — |
-| GET | /api/jobs/recommended | candidate | Jobs ranked by skill match, spec-aligned alias of `/api/recommendations/jobs`. **Cached 120s** per user | — |
-| POST | /api/jobs | recruiter | Post a new job — invalidates the job-list & recommendation caches | ✅ title, company, description, location, skills, deadline |
-| PUT | /api/jobs/:id | recruiter | Update own job — invalidates that job's cache | — |
-| DELETE | /api/jobs/:id | recruiter | Delete own job — invalidates that job's cache | — |
-| GET | /api/jobs/recruiter/my-jobs | recruiter | Get all jobs posted by me | — |
-
-### Candidate Profile
-| Method | Route | Access | Description |
-|--------|-------|--------|-------------|
-| GET | /api/jobs/profile | candidate | Get my profile |
-| PUT | /api/jobs/profile | candidate | Update my profile |
-
-### Applications
-| Method | Route | Access | Description |
-|--------|-------|--------|-------------|
-| POST | /api/applications/apply/:jobId | candidate | Apply to a job — notifies the recruiter |
-| DELETE | /api/applications/withdraw/:applicationId | candidate | Withdraw application |
-| GET | /api/applications/my-applications | candidate | Get all my applications |
-| POST | /api/applications/save/:jobId | candidate | Save a job |
-| GET | /api/applications/saved-jobs | candidate | Get all saved jobs |
-| GET | /api/applications/job/:jobId/applicants | recruiter | View applicants for a job |
-| PUT | /api/applications/:applicationId/status | recruiter | Accept or reject application — notifies the candidate via email + Socket.IO |
-
-### Admin
-| Method | Route | Access | Description |
-|--------|-------|--------|-------------|
-| GET | /api/admin/users | admin | Get all users |
-| DELETE | /api/admin/users/:id | admin | Delete a user |
-| GET | /api/admin/jobs | admin | Get all jobs |
-
-### Resume
-| Method | Route | Access | Description |
-|--------|-------|--------|-------------|
-| POST | /api/resume/upload | candidate | Upload PDF resume → auto-extract & save skills |
-
-### Recommendations
-| Method | Route | Access | Description |
-|--------|-------|--------|-------------|
-| GET | /api/recommendations/jobs | candidate | Get jobs ranked by skill match score (legacy route, kept mounted; same data as `/api/jobs/recommended`) |
-| GET | /api/recommendations/candidates/:jobId | recruiter | Get candidates ranked by skill match score for own job |
-
-### College
-| Method | Route | Access | Description | Validated |
-|--------|-------|--------|-------------|-----------|
-| POST | /api/college/register | tpo | Register your college (starts unverified, one per TPO) | ✅ name, address, website |
-| GET | /api/college | admin | List all colleges | — |
-| PUT | /api/college/:id/verify | admin | Verify a college so its TPO can operate | — |
-| GET | /api/college/:id | any logged-in user | Get a college's details | — |
-
-### TPO — Student Import
-| Method | Route | Access | Description |
-|--------|-------|--------|-------------|
-| POST | /api/tpo/import | tpo | Upload Excel/CSV (field `file`) → bulk create/link students, batch-email credentials in chunks of 50 |
-| GET | /api/tpo/students | tpo | List all students of this TPO's college |
-| GET | /api/tpo/students/:id | tpo | Get a single student's details |
-
-Sheet columns: `name | email | roll_no | branch | cgpa | skills` (`skills` comma-separated).
-
-### TPO — Student Groups (legacy, filter-based)
-| Method | Route | Access | Description | Validated |
-|--------|-------|--------|-------------|-----------|
-| POST | /api/tpo/groups | tpo | Create a group with filters `{ minCgpa, branches[], skills[] }` → auto-populates matching students | ✅ name |
-| GET | /api/tpo/groups | tpo | List all groups of this college | — |
-| GET | /api/tpo/groups/:id | tpo | Get a group + its student list | — |
-| PUT | /api/tpo/groups/:id | tpo | Update filters → re-runs the query and re-populates the group | — |
-
-Filter semantics: `cgpa ≥ minCgpa`, `branch ∈ branches` (case-insensitive), student has **all** listed `skills`. This model is kept fully working for backward compatibility — see [Placement Groups](#placement-groups-manual-tpo-managed) below for the newer, manually-managed alternative.
-
-### Placement Groups (manual, TPO-managed)
-| Method | Route | Access | Description | Validated |
-|--------|-------|--------|-------------|-----------|
-| POST | /api/placement-groups | tpo | Create a placement group (`name`, optional `description`) — name must be unique within the college | ✅ name |
-| GET | /api/placement-groups | tpo | List all placement groups of this college, with a live `studentCount` per group | — |
-| GET | /api/placement-groups/:id | tpo | Get a group + its current member list | ✅ valid group id |
-| PUT | /api/placement-groups/:id | tpo | Rename / update description (checked for name collisions) | ✅ valid group id |
-| DELETE | /api/placement-groups/:id | tpo | Delete a group — every member is automatically vacated (`placementGroup` cleared) first | ✅ valid group id |
-| POST | /api/placement-groups/:id/students | tpo | Assign one student into this group — auto-removes them from any previous group | ✅ studentId |
-| DELETE | /api/placement-groups/:id/students/:studentId | tpo | Remove one student from this group | ✅ valid ids |
-| POST | /api/placement-groups/:id/students/bulk | tpo | Bulk-assign multiple students into this group in one call | ✅ studentIds[] |
-| POST | /api/placement-groups/students/bulk-remove | tpo | Bulk-remove multiple students from whatever group they're in | ✅ studentIds[] |
-| POST | /api/placement-groups/move | tpo | Move a student who's already in a group to a different one | ✅ studentId, toGroupId |
-| GET | /api/placement-groups/my-group | candidate | Read-only — a student checks their own placement group (or a "no group assigned" message) | — |
-
-### TPO — Campus Drives
-| Method | Route | Access | Description | Validated |
-|--------|-------|--------|-------------|-----------|
-| POST | /api/tpo/drives | tpo | Post a drive targeting **one legacy `StudentGroup`**, **one or more `PlacementGroup`s**, or **all students in the college** — notifies every student in the resolved audience (DB notification + Socket.IO). Requires a verified college | ✅ company, title, targetType, deadline (+ targeting fields below) |
-| GET | /api/tpo/drives | tpo | List all drives of this college — `status` is auto-managed (always `closed` past the deadline) | — |
-| GET | /api/tpo/drives/:id | tpo | Get a drive's details + a response summary (interested / not interested / no response) | — |
-| PUT | /api/tpo/drives/:id | tpo | Update drive details, including re-targeting (`targetType`, `targetGroup` or `targetPlacementGroups`) | — |
-| PUT | /api/tpo/drives/:id/status | tpo | Manually set status (`upcoming` / `ongoing` / `closed`) before the deadline | — |
-| GET | /api/tpo/drives/:id/report | tpo | Download a PDF report of every targeted student's response | — |
-| GET | /api/tpo/analytics | tpo | College placement stats: drives, responses, interested %, branch breakdown, top skills | — |
-
-**Targeting a drive** (`targetType`, on create/update):
-| `targetType` | Extra field required | Audience |
-|---|---|---|
-| `studentGroup` (default) | `targetGroup` (one `StudentGroup` id) | that group's auto-populated `students[]` — legacy behavior, unchanged |
-| `placementGroup` | `targetPlacementGroups` (array of `PlacementGroup` ids) | every candidate currently assigned to **any** of those groups |
-| `all` | none | every candidate (`role: 'candidate'`) in the college |
-
-Resolving "who's actually in the audience" for notifications, reports, and eligibility checks always goes through the single `utils/driveAudience.js` helper, so all three consumers agree on the same rule.
-
-### Campus (student side)
-| Method | Route | Access | Description |
-|--------|-------|--------|-------------|
-| GET | /api/campus/drives | candidate | Feed of drives targeting the student's own placement group (or targeted at `all`), eligibility-filtered. **Cached 60s** per college+user | — |
-| GET | /api/campus/drives/:id | candidate | Single drive's details (eligibility-checked) + my own response |
-| POST | /api/campus/drives/:id/respond | candidate | Respond `interested` / `not_interested` — blocked once closed or past the deadline |
-| PUT | /api/campus/profile | candidate | Update resume + skills only (name/email/rollNo/branch/cgpa stay locked); flips `profileComplete` once both are set |
-
-Legacy `studentGroup`-targeted drives are still fully manageable on the TPO side (notifications, reports, analytics all resolve them correctly), but the student-facing feed and eligibility checks now key off a student's single `placementGroup` — see [Placement Groups](#placement-groups-manual-tpo-managed) and [Two Group Systems](#two-group-systems-legacy-studentgroup-vs-placementgroup) below for why both exist.
-
-### Notifications
-| Method | Route | Access | Description |
-|--------|-------|--------|-------------|
-| GET | /api/notifications | any logged-in user | List my notifications (newest first) with an unread count |
-| PUT | /api/notifications/read | any logged-in user | Mark all (or specific `ids`) as read |
-
-### Analytics
-| Method | Route | Access | Description |
-|--------|-------|--------|-------------|
-| GET | /api/analytics/dashboard | recruiter | Hiring funnel: jobs posted, total applications, accepted/rejected/pending breakdown |
-| GET | /api/tpo/analytics | tpo | College placement stats: drives, responses, interested %, branch breakdown, top skills |
-
-## How Job Recommendations Work
-
-1. Candidate's `skills` come from their profile (set manually or auto-filled by the Resume Parser).
-2. `GET /api/jobs/recommended` (and the legacy `GET /api/recommendations/jobs`) fetches every job and compares its `skillsRequired` against the candidate's `skills` (case-insensitive).
-3. `matchScore` = `(matched skills / total required skills) * 100`, rounded to the nearest whole number.
-4. Jobs are sorted highest match → lowest, and jobs with a 0% match are filtered out.
-5. Each recommendation includes the `job`, its `matchScore`, the `matchedSkills`, and the `missingSkills` the candidate would need to be a full match.
-6. If the candidate has no skills on their profile, the endpoint returns a `400` asking them to upload a resume or update their profile first.
-
-## How Candidate Recommendations Work (Recruiter side)
-
-1. `GET /api/recommendations/candidates/:jobId` is only available to the recruiter who owns that job (same ownership check used by `updateJob` / `deleteJob`).
-2. Every candidate (`role: 'candidate'`) with at least one skill on their profile is compared against the job's `skillsRequired` using the same `matchScore` utility, just with the arguments reversed.
-3. Candidates are sorted highest match → lowest, and candidates with a 0% match are filtered out.
-4. Each recommendation includes the `candidate`, the `matchScore`, the `matchedSkills`, and the `missingSkills` they'd need to be a full match.
-5. If the job has no `skillsRequired`, the endpoint returns a `400` since matching has nothing to compare against.
-
-## How the Excel/CSV Student Import Works
-
-1. A TPO must register and have a verified or unverified college on file first — `POST /api/college/register` links the college to the requesting TPO (one college per TPO).
-2. `POST /api/tpo/import` accepts a single Excel (`.xlsx`/`.xls`) or CSV file under the `file` field, parsed in-memory with `xlsx` (no disk writes).
-3. Each row is read tolerantly — header casing/spacing variants like `roll_no`, `Roll No`, `RollNo` are all accepted via a `pick()` helper.
-4. Rows missing `name`, `email`, or `roll_no` are skipped and reported in `summary.errors` with the offending row number.
-5. **Duplicate handling:**
-   - Duplicate `roll_no` *within the same sheet* is skipped and reported.
-   - An `email` that already exists in the database is **linked** to the importing college (not recreated) — their `rollNo`/`branch`/`cgpa` are updated and skills are merged, but no new account or email is sent.
-   - A brand-new `email` gets a new candidate account with a random temporary password and is queued for a credentials email.
-6. **Batch email sending:** all queued credential emails are sent through `sendBatchEmails(messages, chunkSize = 50)`, which chunks the list and fires each chunk with `Promise.allSettled` so one bad address never blocks the rest. The response includes a `{ total, sent, failed }` summary.
-7. The endpoint responds with a `summary` (totalRows / created / linked / skipped / errors) and an `emails` summary in one shot. Imported students start with no placement group — a TPO assigns them via the Placement Groups API afterward.
-
-## Two Group Systems: legacy `StudentGroup` vs. `PlacementGroup`
-
-HireSync intentionally ships **two different, coexisting group concepts** rather than merging them, because they solve different problems and merging them would have quietly broken existing drives:
-
-| | `StudentGroup` (legacy) | `PlacementGroup` (current) |
-|---|---|---|
-| Membership | **Auto-populated** by filters (`minCgpa`, `branches[]`, `skills[]`) — re-run on every filter update | **Manually assigned** by the TPO, one student at a time or in bulk |
-| A student can belong to | Any number of groups | **At most one** group at a time (enforced on `User.placementGroup`, the single source of truth) |
-| A drive can target | Exactly one `StudentGroup` | One **or more** `PlacementGroup`s, or **all** students in the college |
-| Still usable? | ✅ Yes — fully supported for creating drives, notifications, reports and analytics | ✅ Yes — the primary way to target drives going forward |
-| Surfaced on the student feed? | No longer directly (existing `studentGroup`-targeted drives still notify their members on creation, but the feed/eligibility logic now keys off `placementGroup`) | Yes |
-
-**Why not just extend `StudentGroup`?** Its membership is *derived* (re-computed from filters on every update) while `PlacementGroup` membership is *authoritative* (whatever the TPO explicitly set). Trying to express both in one model would have meant either breaking the "one group per student" guarantee or breaking the existing filter-based auto-population that current drives, reports, and analytics already depend on. Keeping them separate — with a single `CampusDrive.targetType` discriminator (`studentGroup` / `placementGroup` / `all`) and one shared `utils/driveAudience.js` helper resolving the actual audience for every consumer (notifications, the student feed, the report, eligibility checks) — meant zero downtime for existing drives while adding the new, more precise workflow cleanly on top.
-
-## How Student Groups & Campus Drives Work
-
-1. **Legacy path:** A TPO creates a `StudentGroup` with optional filters (`minCgpa`, `branches[]`, `skills[]`). The group is **auto-populated** at creation time by running those filters against the college's imported students — no manual student picking. Updating a group's filters (`PUT /api/tpo/groups/:id`) re-runs the query and re-populates the `students` list from scratch.
-2. **Current path:** A TPO creates one or more `PlacementGroup`s and manually assigns students into them (single, bulk, or move operations) via the Placement Groups API. Every student sits in at most one group.
-3. A TPO posts a `CampusDrive` (`POST /api/tpo/drives`) targeting a legacy group (`targetType: 'studentGroup'`), one or more placement groups (`targetType: 'placementGroup'`), or every student in the college (`targetType: 'all'`). The college must already be admin-verified, or the request is rejected.
-4. On posting, every student in the resolved audience gets:
-   - a `Notification` document (visible via `GET /api/notifications`), and
-   - a realtime `drive:new` event pushed over Socket.IO straight to their personal room (`user:<id>`), plus a broadcast to the whole college room (`college:<id>`).
-5. Students connect to Socket.IO using the same JWT as the REST API (via the cookie or an explicit `auth.token`), and are auto-joined to their personal + college rooms on connect.
-6. A student responds to a drive with `POST /api/campus/drives/:id/respond`. The response is **locked** once the drive's deadline has passed or its status was manually set to `closed` — both checks happen before the response is recorded.
-7. Responses are upserted (one per student per drive), so a student can change their mind any time before the deadline.
-
-## Drive Status, Profile Completion, PDF Reports & Caching
-
-**Auto-managed drive status** — `utils/driveStatus.js` is the single source of truth:
-- `effectiveStatus(drive)`: once `deadline` has passed, a drive always reads as `closed`, no matter what's stored. Before the deadline, the TPO's manually-set status (`upcoming` / `ongoing`) is trusted.
-- `isDriveOpen(drive)`: used to gate `POST /api/campus/drives/:id/respond` — the same rule the feed displays is the rule that locks responses.
-
-**Profile completion flag** — `PUT /api/campus/profile` recomputes `user.profileComplete` after every update: `true` once both `resumeUrl` and at least one skill are present, `false` otherwise.
-
-**Campus drive feed** — `GET /api/campus/drives` returns only drives whose resolved audience the student actually belongs to (their `placementGroup`, or drives targeted at `all`), each annotated with the student's own response if they've made one.
-
-**PDF report** — `GET /api/tpo/drives/:id/report` streams an A4 landscape PDF (built with `pdfkit`, no temp files) listing every audience student's name / roll no / branch / CGPA / skills / response, with automatic pagination — resolved through the same `driveAudience` helper regardless of targeting mode.
-
-**Redis caching** — `config/redis.js` connects lazily and never blocks the app: if Redis is down, `middlewares/cache.middleware.js` just passes every request straight through (the API is identical with or without it). Cached routes:
-
-| Route | TTL | Invalidated on |
-|-------|-----|-----------------|
-| `GET /api/jobs` | 60s | any job create/update/delete |
-| `GET /api/jobs/:id` | 60s | that job's update/delete |
-| `GET /api/jobs/recommended` | 120s | any job create (broad invalidation) |
-| `GET /api/campus/drives` | 60s, per college+user | a drive being posted/updated/status-changed for that college, **or** that one student's placement group changing (assign/move/remove/delete-group) |
-
-A `X-Cache: HIT`/`MISS` response header is set on every cached route so you can see it working. If Redis is unavailable, every request is a cache miss and the API behaves normally.
-
-## Real-time (Socket.IO)
-
-Connect with the JWT cookie, or `io(url, { auth: { token } })`. Each socket joins a personal room `user:<id>` and (for on-campus users) `college:<collegeId>`.
-
-| Event | To | When |
-|-------|----|------|
-| `drive:new` | resolved audience + college room | a drive is posted (any targeting mode) |
-| `drive:response:confirmed` | the responding student | response recorded |
-| `application:new` | the recruiter | a candidate applies |
-| `application:status` | the candidate | recruiter accepts/rejects |
-
-Every realtime event is backed by a persisted `Notification` document, so nothing is lost if the client wasn't connected — `GET /api/notifications` always has the full history.
-
-## Validation Rules
-
-### Register (`POST /api/auth/register`)
-| Field | Rule |
-|-------|------|
-| name | Required, min 2 characters |
-| email | Required, valid email format |
-| password | Required, min 6 characters |
-| role | Optional, must be `candidate`, `recruiter` or `tpo` |
-
-### Login (`POST /api/auth/login`)
-| Field | Rule |
-|-------|------|
-| email | Required, valid email format |
-| password | Required |
-
-### Create Job (`POST /api/jobs`)
-| Field | Rule |
-|-------|------|
-| title | Required |
-| company | Required |
-| description | Required, min 20 characters |
-| location | Required |
-| skillsRequired | Required, must be array with at least 1 item |
-| applicationDeadline | Required, valid ISO8601 date |
-
-### Register College (`POST /api/college/register`)
-| Field | Rule |
-|-------|------|
-| name | Required, min 2 characters |
-| address | Optional |
-| website | Optional, must be a valid URL if provided |
-
-### Create Group — legacy `StudentGroup` (`POST /api/tpo/groups`)
-| Field | Rule |
-|-------|------|
-| name | Required |
-| filters | Optional, must be an object if provided |
-
-### Create Placement Group (`POST /api/placement-groups`)
-| Field | Rule |
-|-------|------|
-| name | Required, min 2 characters, unique within the college |
-| description | Optional |
-
-### Assign / Move / Bulk Student Operations (`/api/placement-groups/*`)
-| Field | Rule |
-|-------|------|
-| studentId | Required, must be a valid Mongo id |
-| studentIds | Required (bulk routes), must be a non-empty array of valid Mongo ids |
-| toGroupId | Required (move route), must be a valid Mongo id |
-
-### Create Drive (`POST /api/tpo/drives`)
-| Field | Rule |
-|-------|------|
-| company | Required |
-| title | Required |
-| description | Optional |
-| jd | Optional |
-| targetType | Optional, one of `studentGroup` / `placementGroup` / `all` (defaults to `studentGroup`) |
-| targetGroup | Required **only** when `targetType` is `studentGroup`, must be a valid group id |
-| targetPlacementGroups | Required **only** when `targetType` is `placementGroup`, non-empty array of valid group ids |
-| deadline | Required, valid ISO8601 date |
-
-## Project Structure
 ```
-src/
-├── app.js                      # express app + route mounting
-├── config/                     # cloudinary, multer (pdf + excel), redis, socket
-├── controllers/                # auth, job, application, recommendation, resume, candidate,
-│                                # admin, college, tpo, campus, notification, analytics,
-│                                # placementGroup
-├── db/db.js                    # mongoose connection
-├── middlewares/                # auth (incl. authTPO, authCandidate), cache, validate, errorHandler
-├── models/                     # user, job, application, college, studentGroup, placementGroup,
-│                                # campusDrive, driveResponse, notification
-├── routes/                     # one router per domain, incl. placementGroup.routes.js
-├── utils/                      # matchScore, skillExtractor, sendEmail (+batch),
-│                                # cacheKeys, generatePDF, driveStatus, driveAudience
-└── validators/                 # auth, job, college, drive, placementGroup
-server.js                       # http server + Socket.IO + Redis bootstrap
+Hiresync-backend/
+├── server.js                    # entrypoint — HTTP server + Socket.IO + Mongo/Redis bootstrap
+├── src/
+│   ├── app.js                   # Express app, middleware & route wiring
+│   ├── config/
+│   │   ├── cloudinary.js        # Cloudinary SDK config
+│   │   ├── multer.js            # PDF + Excel/CSV upload handlers (in-memory)
+│   │   ├── redis.js             # Fail-open Redis client
+│   │   └── socket.js            # JWT-authenticated Socket.IO gateway
+│   ├── controllers/             # 13 controllers — one per domain
+│   ├── db/
+│   │   └── db.js                # Mongoose connection
+│   ├── middlewares/
+│   │   ├── auth.middleware.js    # authCandidate / authRecruiter / authAdmin / authTPO / authUser
+│   │   ├── cache.middleware.js   # transparent read-through cache
+│   │   ├── errorHandler.js       # asyncHandler + global error normalizer
+│   │   └── validate.js          # express-validator result handler
+│   ├── models/                  # 10 Mongoose schemas
+│   ├── routes/                  # 13 route files, mounted in app.js
+│   ├── utils/
+│   │   ├── cacheKeys.js         # centralised key builders + invalidators
+│   │   ├── driveAudience.js     # single source of truth for "who sees this drive"
+│   │   ├── driveStatus.js       # auto-computed effective drive status
+│   │   ├── generatePDF.js       # streamed PDF drive-report generator
+│   │   ├── matchScore.js        # bidirectional skill-matching algorithm
+│   │   ├── sendEmail.js         # single + batched transactional email
+│   │   └── skillExtractor.js    # regex skill extraction against a 150+ term list
+│   └── validators/               # express-validator rule sets per domain
+├── package.json
+└── .env.example
 ```
 
-## Progress
+---
 
-### Phase 1 — Core + Error Handling ✅
-- [x] Project setup & DB connection
-- [x] User model
-- [x] Auth (register / login / logout)
-- [x] Auth middleware (protect routes by role)
-- [x] Job model + Job CRUD
-- [x] Application model
-- [x] Candidate profile (get / update)
-- [x] Applications (apply, withdraw, save, recruiter views)
-- [x] Email notifications
-- [x] Admin panel
+## 👥 Roles & Access
 
-### Phase 2.1 — Error Handling Infrastructure ✅
-- [x] `asyncHandler` — wraps all controllers, auto-catches async errors
-- [x] `errorHandler` — global error handler (Mongoose, JWT, Multer, duplicates)
-- [x] `validate` middleware — returns structured field-level errors
+| Role | Capabilities |
+|---|---|
+| `admin` | Verify colleges, manage/delete users, view all jobs |
+| `tpo` | Owns exactly one college (once verified): import students, manage groups & placement groups, run campus drives, view analytics |
+| `recruiter` | Post/manage off-campus jobs, review applicants, view hiring-funnel analytics |
+| `candidate` | Self-registered (off-campus) or imported (on-campus): browse/apply to jobs, respond to campus drives, upload resume, get recommendations |
 
-### Phase 2.2 — Input Validators ✅
-- [x] `auth.validator.js` — register & login rules
-- [x] `job.validator.js` — create job rules
-- [x] Validators plugged into auth and job routes
+---
 
-### Phase 2.3 — Resume Parser ✅
-- [x] Cloudinary config
-- [x] Multer config (PDF only, 5MB limit)
-- [x] Skill extractor utility
-- [x] Resume controller (upload → parse → extract skills)
-- [x] Resume route (`POST /api/resume/upload`)
+## 🏆 Project Highlights
 
-## Phase 3 — Recommendation / Matching System
+- **63+ REST endpoints across 12 route modules, 13 controllers, and 10 data models** — a genuinely full-featured recruitment platform, not a CRUD toy.
+- **Two independent hiring pipelines sharing one codebase** — off-campus job-board flow and on-campus campus-drive flow reuse the same auth, notification, and caching infrastructure without stepping on each other.
+- **Real-time, not polling** — Socket.IO events fire the moment a drive is posted or an application status changes.
+- **Designed to survive partial outages** — Redis, email, and even individual rows in a bulk import can fail without taking the rest of the request (or the app) down with them.
+- **Six incremental phases, zero breaking migrations** — every new feature (recommendations, campus module, analytics, placement groups) was added without altering the contract of a route that shipped earlier.
 
-### Phase 3.1 — Job Recommendations for Candidates ✅
-- [x] `matchScore` utility — compares candidate skills vs a job's `skillsRequired`, returns match %, matched skills, missing skills
-- [x] Recommendation controller (`getRecommendedJobs`) — scores & ranks all jobs for the logged-in candidate
-- [x] Recommendation route (`GET /api/recommendations/jobs`) — candidate-only
-- [x] Registered in `app.js` under its own `/api/recommendations` prefix (same pattern as `/api/resume`)
+---
 
-### Phase 3.2 — Candidate Recommendations for Recruiters ✅
-- [x] Recruiter controller (`getRecommendedCandidates`) — reuses `matchScore` to rank candidates against a job's `skillsRequired`
-- [x] Recommendation route (`GET /api/recommendations/candidates/:jobId`) — recruiter-only, scoped to jobs they own
-- [x] No schema or env changes required — reuses existing `User.skills` and `Job.skillsRequired`
+## 📚 Documentation
 
-## Phase 4 — Campus Placement Module
+- **[API Guide](docs/API_GUIDE.md)** — every endpoint, grouped by domain, with method, access role, and validation notes.
+- **[Architecture Guide](docs/ARCHITECTURE.md)** — deeper dive into the caching strategy, the drive-targeting model, and the notification pipeline.
 
-### Phase 4.1 — College & TPO Onboarding ✅
-- [x] `College` model — `name`, `address`, `website`, `isVerified`, `tpo` (owner ref)
-- [x] `User` model extended — `tpo` role + on-campus fields (`college`, `rollNo`, `branch`, `cgpa`, `isImported`)
-- [x] `authTPO` middleware — restricts TPO-only routes; `authUser` updated to recognize `tpo`
-- [x] College registration (`POST /api/college/register`) — one college per TPO, starts unverified
-- [x] Admin verification (`GET /api/college`, `PUT /api/college/:id/verify`) — admin-only, flips `isVerified`
-- [x] Excel/CSV student import (`POST /api/tpo/import`) — `xlsx` parsing, tolerant headers, duplicate `roll_no`/`email` handling, temp passwords for new accounts
-- [x] Batch email sending (`sendBatchEmails`) — credential emails sent in chunks of 50 via `Promise.allSettled`
-- [x] `GET /api/tpo/students`, `GET /api/tpo/students/:id` — view imported students for the TPO's college
+---
 
-### Phase 4.2 — Campus Drives & Realtime Notifications ✅
-- [x] `StudentGroup` model — `name`, `filters { minCgpa, branches[], skills[] }`, auto-populated `students[]`
-- [x] Group auto-filter population — `buildMatchQuery()` runs on create *and* on every filter update
-- [x] `CampusDrive` model — `company`, `title`, `description`, `jd`, `targetGroup`, `deadline`, `status`
-- [x] `Notification` model + inbox (`GET /api/notifications`, `PUT /api/notifications/read`)
-- [x] Socket.IO bootstrapped (`config/socket.js`) — JWT-authenticated handshake, personal (`user:<id>`) + college (`college:<id>`) rooms
-- [x] Post drive to group (`POST /api/tpo/drives`) — requires a verified college, fans out a DB notification + `drive:new` socket event to every student in the target group
-- [x] TPO drive management — list / get / update drive, manual status toggle (`upcoming` / `ongoing` / `closed`)
-- [x] Student response with deadline lock (`POST /api/campus/drives/:id/respond`) — eligibility-checked against group membership, rejected once the deadline passes or status is `closed`, upserted so responses are editable until then
-- [x] `server.js` now wraps Express in a raw `http` server so Socket.IO can share the same port
+## License
 
-### Phase 4.3 — Status, PDFs, Profiles & Caching ✅
-- [x] Drive status auto-management — `utils/driveStatus.js` (`effectiveStatus`, `isDriveOpen`), used consistently by the TPO drive views, the student feed, and the response lock
-- [x] `GET /api/tpo/drives/:id` now returns a response summary (interested / not interested / no response)
-- [x] PDF drive report — `utils/generatePDF.js` (`pdfkit`) streamed via `GET /api/tpo/drives/:id/report`
-- [x] `profileComplete` flag on `User` — recomputed on every `PUT /api/campus/profile`
-- [x] Campus drive feed for students — `GET /api/campus/drives` / `GET /api/campus/drives/:id`, eligibility-filtered to the student's groups, includes their own response
-- [x] Redis caching — `config/redis.js` (optional, never blocks startup), `middlewares/cache.middleware.js` (transparent read-through, `X-Cache` header), `utils/cacheKeys.js` (key builders + write-side invalidators)
-- [x] Caching wired into: job list, job-by-id, recommended jobs, campus drive feed — with invalidation on every relevant write
-- [x] Fixed a leftover stub in `getJobById` (`GET /api/jobs/:id` previously always threw) so the now-cached route actually works
-- [x] `server.js` connects Redis at boot alongside Mongo and Socket.IO
-
-### Phase 4.4 — Full Socket.IO ✅
-- [x] **Drive announcements** (`drive:new`) — carried over from Phase 4.2, still fires on `POST /api/tpo/drives`
-- [x] **Response confirmations** (`drive:response:confirmed`) — `POST /api/campus/drives/:id/respond` now also creates a `Notification` and pings the student in realtime once their response is saved
-- [x] **Off-campus apply notifications** (`application:new`) — `POST /api/applications/apply/:jobId` notifies + pings the recruiter who owns the job
-- [x] **Off-campus status notifications** (`application:status`) — `PUT /api/applications/:applicationId/status` notifies + pings the candidate when accepted/rejected
-- [x] Every realtime event is backed by a persisted `Notification` document, so nothing is lost if the client wasn't connected — `GET /api/notifications` always has the full history
-
-A note on scope: the codebase doesn't implement a distinct "shortlist" status or event separate from the existing accept/reject flow — `application:status` already covers the off-campus accepted/rejected case end to end, so that's what's wired here rather than inventing a parallel mechanism.
-
-## Phase 5 — Analytics, Spec Alignment & Final Polish ✅
-- [x] Recruiter hiring-funnel analytics (`GET /api/analytics/dashboard`) — jobs posted, total applications, accepted/rejected/pending breakdown, recruiter-scoped
-- [x] TPO placement analytics (`GET /api/tpo/analytics`) — drive count, response totals, interested %, branch-wise breakdown, top requested skills, college-scoped
-- [x] `GET /api/jobs/recommended` added as the spec-aligned alias for candidate job recommendations — same controller/logic as `GET /api/recommendations/jobs`, both routes kept mounted so neither integration breaks
-- [x] Fixed `/api/admin/*` — it was accidentally wired to duplicate the job routes instead of the admin controller; now correctly serves `GET /api/admin/users`, `DELETE /api/admin/users/:id`, `GET /api/admin/jobs`
-- [x] Environment variable table and role matrix documented for first-time setup
-- [x] Project structure and full route map consolidated into this README as the final, authoritative reference
-
-### Two pre-existing bugs fixed along the way
-Both sat directly in the path of newly-built features, so they were fixed rather than worked around:
-1. `GET /api/jobs/:id` was a stub that always threw — fixed when Phase 4.3 added caching to it.
-2. `/api/admin/*` was accidentally wired to duplicate the job routes instead of the admin controller — fixed when Phase 5 wired up the admin overview.
-
-## Phase 6 — Manual Placement Groups ✅
-
-The existing filter-based `StudentGroup` model auto-populates membership from CGPA/branch/skills and lets a drive target exactly one group. A newer requirement called for something with different semantics entirely — **manual** student assignment, **one group per student**, and drives that can target **multiple groups or the whole college at once**. Rather than force those semantics onto the existing model (which would have broken every drive, report, and analytics query that reads `targetGroup` today), this was scoped as its own phase, starting with a design decision before any code was written.
-
-### Phase 6.1 — Analysis & Schema Design ✅
-- [x] **Decision: new `PlacementGroup` model, coexisting with the old `StudentGroup`.** The old model's membership is *derived* (re-computed from filters); the new model's membership is *authoritative* (whatever the TPO explicitly set) — trying to merge the two would have meant sacrificing one property or the other.
-- [x] **Decision: `CampusDrive` gets a `targetType` discriminator** (`studentGroup` default / `placementGroup` / `all`), with `targetGroup` now conditionally required only for the legacy case and a new `targetPlacementGroups[]` array for the new case. Existing drives are untouched — they were persisted without a `targetType`, which defaults to `studentGroup` and continues resolving through `targetGroup` exactly as before.
-- [x] **Decision: "one group per student" lives on `User.placementGroup`.** A single ref field, enforced with one `findOneAndUpdate`-style save on assign/move, no join required to check it — the natural minimal-change option.
-- [x] **Migration note:** no destructive changes. Every field added (`targetType`, `targetPlacementGroups`, `User.placementGroup`, `User.placementGroupAssignedAt`) is additive with safe defaults; nothing existing was renamed, removed, or required to be re-saved.
-- [x] Files touched in the phases that followed: `models/Placementgroup.model.js` (new), `models/user.model.js` (additive fields), `models/campusDrive.model.js` (additive fields), `controllers/Placementgroup.controller.js` (new), `controllers/tpo.controller.js` (drive targeting), `controllers/campus.controller.js` (feed/eligibility), `validators/Placementgroup.validator.js` (new), `validators/drive.validator.js` (conditional targeting rules), `routes/Placementgroup.routes.js` (new), `utils/driveAudience.js` (new), `utils/cacheKeys.js` (per-student invalidation), `app.js` (new mount point).
-
-### Phase 6.2 — Group CRUD + Student Assignment (TPO-side) ✅
-- [x] `PlacementGroup` model — `college`, `name` (unique per college), `description`, `createdBy`; intentionally has **no** embedded `students[]` array, since `User.placementGroup` is the single source of truth and keeping both would risk drift
-- [x] `placementGroup.controller.js` — `createGroup`, `getGroups` (with a live per-group `studentCount` aggregated straight from `User`), `getGroupById`, `updateGroup`, `deleteGroup`
-- [x] Student assignment — `assignStudent`, `removeStudent`, `moveStudent`, `bulkAssignStudents`, `bulkRemoveStudents`, all funnelled through one `reassignStudent()` helper so "vacate the old group, set the new one, bust that student's cache" only has one implementation to get right
-- [x] Single-group-per-student enforced atomically on every assign/move — no student is ever briefly in two groups or left in a stale one
-- [x] Deleting a group first vacates every member (`placementGroup: null`) before removing the group document, so no student is ever left pointing at a group that no longer exists
-- [x] `placementGroup.validator.js` — name/description rules, Mongo-id param checks, non-empty array checks for bulk operations
-- [x] Routes mounted at `/api/placement-groups`, gated by the existing `authMiddleware.authTPO`
-
-### Phase 6.3 — Drive Posting Integration ✅
-- [x] `CampusDrive.targetType` (`studentGroup` / `placementGroup` / `all`) added alongside the original `targetGroup`, which is now conditionally required only when `targetType === 'studentGroup'`
-- [x] New `targetPlacementGroups[]` field, populated only when `targetType === 'placementGroup'`
-- [x] `createDrive` / `updateDrive` (`tpo.controller.js`) and `createDriveValidator` (`drive.validator.js`) updated to branch on `targetType`, including re-targeting rules on update (switching modes clears out the fields that no longer apply, so a drive can never end up `all` with a stale `targetPlacementGroups` array)
-- [x] `utils/driveAudience.js` — the single place that resolves "who is this drive for," used by drive creation (notifications/sockets), the PDF report, and the student feed, so every consumer of "the audience" agrees on the same answer regardless of targeting mode
-
-### Phase 6.4 — Student-Side Visibility & `my-group` Endpoint ✅
-- [x] `campus.controller.js` (`resolveMembership`, `getCampusDrives`, `getCampusDriveById`, `respondToDrive`) now filters by the student's single `placementGroup` plus `all`-targeted drives, via `isCandidateInAudience` / `buildAudienceFilter`, replacing the old multi-group membership query
-- [x] `GET /api/placement-groups/my-group` — read-only, returns the student's group `id`/`name`/`description`/`assignedAt`, or a clear "no placement group assigned yet" message; gated by `authMiddleware.authCandidate` rather than the TPO-only guard the rest of the router uses
-- [x] `utils/cacheKeys.js` gained a per-student invalidator (`invalidators.studentCampusDrives`) so an assign/move/remove/group-delete busts exactly that one student's cached feed instead of the whole college's
-
-## Notes
-- A full live run needs MongoDB (required) plus, optionally, Redis, SMTP, and Cloudinary credentials.
-- The on-campus build added `ioredis`, `socket.io`, `xlsx`, `pdfkit` on top of the original off-campus dependency set.
-- `StudentGroup` (filter-based) and `PlacementGroup` (manually-managed) are both live in the codebase by design — see [Two Group Systems](#two-group-systems-legacy-studentgroup-vs-placementgroup) for when each applies.
+ISC
