@@ -49,16 +49,24 @@ async function sendOtp(req, res) {
         expiresAt: new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000)
     });
 
-    await sendEmail({
-        to: email,
-        subject: 'Your HireSync verification code',
-        html: `
-            <p>Hi,</p>
-            <p>Your HireSync verification code is:</p>
-            <h2 style="letter-spacing:4px;">${otp}</h2>
-            <p>This code expires in ${OTP_TTL_MINUTES} minutes. If you didn't request this, you can ignore this email.</p>
-        `
-    });
+    try {
+        await sendEmail({
+            to: email,
+            subject: 'Your HireSync verification code',
+            html: `
+                <p>Hi,</p>
+                <p>Your HireSync verification code is:</p>
+                <h2 style="letter-spacing:4px;">${otp}</h2>
+                <p>This code expires in ${OTP_TTL_MINUTES} minutes. If you didn't request this, you can ignore this email.</p>
+            `
+        });
+    } catch (err) {
+        // email failed to send — don't leave a dangling OTP record the user
+        // can never verify, and surface a real message instead of a bare 500
+        await otpModel.deleteMany({ email, verified: false });
+        console.error('sendOtp email failed:', err.message);
+        return res.status(502).json({ message: 'Could not send the verification email right now. Please try again in a moment.' });
+    }
 
     res.status(200).json({ message: 'OTP sent to your email' });
 }

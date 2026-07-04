@@ -1,34 +1,27 @@
-const nodemailer = require('nodemailer');
+const SibApiV3Sdk = require('sib-api-v3-sdk');
 
-const transporter = nodemailer.createTransport({
-    service: process.env.EMAIL_SERVICE || 'gmail',
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-    },
-    //fix: force IPv4 for SMTP to avoid Render IPv6 ENETUNREACH timeout
-    family: 4,
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 10000
-});
+const defaultClient = SibApiV3Sdk.ApiClient.instance;
+defaultClient.authentications['api-key'].apiKey = process.env.BREVO_API_KEY;
 
+const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
+
+// Same signature as before — every existing caller (sendOtp, application
+// controller, sendBatchEmails, tpo import) needs zero changes.
 async function sendEmail({ to, subject, html }) {
-    const mailOptions = {
-        from: process.env.EMAIL_USER,
-        to,
-        subject,
-        html
-    };
-    await transporter.sendMail(mailOptions);
+    const email = new SibApiV3Sdk.SendSmtpEmail();
+    email.sender = { email: process.env.EMAIL_FROM, name: 'HireSync' };
+    email.to = [{ email: to }];
+    email.subject = subject;
+    email.htmlContent = html;
+
+    try {
+        await apiInstance.sendTransacEmail(email);
+    } catch (err) {
+        throw new Error(err.response?.body?.message || err.message || 'Failed to send email');
+    }
 }
 
-// Send a batch of emails in chunks (default 50) so a big import (e.g. a whole
-// batch of imported students getting credentials) doesn't open hundreds of SMTP
-// connections at once or trip provider rate limits. One failed email never sinks
-// the rest — we use allSettled and report a summary.
-//
-// messages = [{ to, subject, html }]
+// Unchanged — chunked batch sending, one failed email never sinks the rest.
 async function sendBatchEmails(messages = [], chunkSize = 50) {
     let sent = 0;
     let failed = 0;
