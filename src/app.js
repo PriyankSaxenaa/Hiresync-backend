@@ -12,7 +12,7 @@ const tpoRoutes = require('./routes/tpo.routes');
 const campusRoutes = require('./routes/campus.routes');
 const notificationRoutes = require('./routes/notification.routes');
 const analyticsRoutes = require('./routes/analytics.routes');
-const placementGroupRoutes = require('./routes/Placementgroup.routes');
+const placementGroupRoutes = require('./routes/placementGroup.routes');
 const { errorHandler } = require('./middlewares/errorHandler');
 
 const app = express();
