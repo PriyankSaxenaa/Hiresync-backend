@@ -20,12 +20,16 @@ async function updateProfile(req, res) {
 }
 
 async function getProfile(req, res) {
-    const user = await userModel.findById(req.user.id).select('-password');
+    // populate college so on-campus candidates can see their campus name,
+    // address, website and verification status without a separate call
+    const user = await userModel
+        .findById(req.user.id)
+        .select('-password')
+        .populate('college', 'name address website isVerified');
 
     if (!user) {
         return res.status(404).json({ message: 'User not found' });
     }
-    
 
     res.status(200).json({
         message: 'Profile fetched successfully',

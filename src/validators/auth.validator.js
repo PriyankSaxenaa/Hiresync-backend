@@ -30,4 +30,24 @@ const loginValidator = [
         .notEmpty().withMessage('Password is required'),
 ];
 
-module.exports = { registerValidator, loginValidator };
+const sendOtpValidator = [
+    body('email')
+        .trim()
+        .notEmpty().withMessage('Email is required')
+        .isEmail().withMessage('Enter a valid email'),
+];
+
+const verifyOtpValidator = [
+    body('email')
+        .trim()
+        .notEmpty().withMessage('Email is required')
+        .isEmail().withMessage('Enter a valid email'),
+
+    body('otp')
+        .trim()
+        .notEmpty().withMessage('OTP is required')
+        .isLength({ min: 6, max: 6 }).withMessage('OTP must be 6 digits')
+        .isNumeric().withMessage('OTP must contain only numbers'),
+];
+
+module.exports = { registerValidator, loginValidator, sendOtpValidator, verifyOtpValidator };
