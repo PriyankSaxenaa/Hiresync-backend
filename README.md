@@ -64,17 +64,43 @@ It was built incrementally across six phases — starting from core auth/jobs/ap
 
 *Live deployment — deployed frontend + this backend, connected end-to-end.*
 
-| Landing Page | Admin Dashboard |
-|---|---|
-| ![HireSync landing page](screenshots/01-landing-page.png) | ![Admin overview dashboard](screenshots/02-admin-dashboard.png) |
+### Dashboards
 
-| TPO / Placement Cell Dashboard | Recruiter Dashboard |
+| Recruiter Dashboard | TPO / Placement Cell Dashboard |
 |---|---|
-| ![TPO placement cell dashboard](screenshots/03-tpo-dashboard.png) | ![Recruiter hiring dashboard](screenshots/05-recruiter-dashboard.png) |
+| ![Recruiter hiring dashboard](screenshots/02-recruiter-dashboard.png) | ![TPO placement cell dashboard](screenshots/03-tpo-dashboard.png) |
 
 <div align="center">
-<img src="screenshots/04-candidate-dashboard.png" alt="Candidate dashboard" width="600"/>
+<img src="screenshots/04-candidate-dashboard.png" alt="Candidate dashboard" width="700"/>
 <br/><em>Candidate Dashboard</em>
+</div>
+
+### Off-Campus Flow
+
+| Recruiter — My Jobs | Candidate — Browse Jobs |
+|---|---|
+| ![Recruiter job postings](screenshots/05-recruiter-jobs.png) | ![Candidate browsing open jobs](screenshots/06-candidate-browse-jobs.png) |
+
+<div align="center">
+<img src="screenshots/07-candidate-applications.png" alt="Candidate application tracking" width="700"/>
+<br/><em>My Applications — live status tracking (Pending / Accepted / Rejected)</em>
+</div>
+
+### On-Campus Flow
+
+| Campus Drives (Candidate View) | TPO — Student Roster |
+|---|---|
+| ![Candidate responding to campus drives](screenshots/08-candidate-campus-drives.png) | ![TPO students roster with skill tags](screenshots/09-tpo-students.png) |
+
+| Placement Groups | Generated Drive Report (PDF) |
+|---|---|
+| ![Manually managed placement groups](screenshots/10-tpo-placement-groups.png) | ![Auto-generated campus drive PDF report](screenshots/11-drive-report-pdf.png) |
+
+### Admin
+
+<div align="center">
+<img src="screenshots/12-admin-users.png" alt="Admin user management panel" width="700"/>
+<br/><em>Admin Panel — role-based user management across all four roles</em>
 </div>
 
 ---
