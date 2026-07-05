@@ -101,11 +101,11 @@ It was built incrementally across six phases — starting from core auth/jobs/ap
 |---|---|
 | ![Manually managed placement groups](screenshots/08-candidate-campus-drives.png) | ![Auto-generated campus drive PDF report](screenshots/11-drive-report-pdf.png) |
 
-### Admin
+### Landing Page
 
 <div align="center">
-  <img src="screenshots/03-tpo-dashboard.png" alt="Admin user management panel" width="700"/>
-  <br/><em>Admin Panel — role-based user management across all four roles</em>
+  <img src="01-landing-page.png.png" alt="Landing Page image" width="700"/>
+  <br/><em>Landing Page</em>
 </div>
 ## ✨ Features
 
