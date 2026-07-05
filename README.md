@@ -104,7 +104,7 @@ It was built incrementally across six phases — starting from core auth/jobs/ap
 ### Landing Page
 
 <div align="center">
-  <img src="01-landing-page.png.png" alt="Landing Page image" width="700"/>
+  <img src="01-landing-page.png" alt="Landing Page image" width="700"/>
   <br/><em>Landing Page</em>
 </div>
 ## ✨ Features
