@@ -66,45 +66,47 @@ It was built incrementally across six phases — starting from core auth/jobs/ap
 
 ### Dashboards
 
-| Recruiter Dashboard | TPO / Placement Cell Dashboard |
+| Admin Dashboard | Recruiter Dashboard |
 |---|---|
-| ![Recruiter hiring dashboard](screenshots/02-recruiter-dashboard.png) | ![TPO placement cell dashboard](screenshots/03-tpo-dashboard.png) |
+| ![Admin overview dashboard](screenshots/02-admin-dashboard.png) | ![Recruiter hiring dashboard](screenshots/02-recruiter-dashboard.png) |
 
 <div align="center">
-<img src="screenshots/04-candidate-dashboard.png" alt="Candidate dashboard" width="700"/>
-<br/><em>Candidate Dashboard</em>
+  <img src="screenshots/06-candidate-browse-jobs.png" alt="TPO placement cell dashboard" width="700"/>
+  <br/><em>TPO / Placement Cell Dashboard</em>
+</div>
+
+<div align="center">
+  <img src="screenshots/07-candidate-applications.png" alt="Candidate dashboard" width="700"/>
+  <br/><em>Candidate Dashboard</em>
 </div>
 
 ### Off-Campus Flow
 
 | Recruiter — My Jobs | Candidate — Browse Jobs |
 |---|---|
-| ![Recruiter job postings](screenshots/05-recruiter-jobs.png) | ![Candidate browsing open jobs](screenshots/06-candidate-browse-jobs.png) |
+| ![Recruiter job postings](screenshots/05-recruiter-jobs.png) | ![Candidate browsing open jobs](screenshots/10-tpo-placement-groups.png) |
 
 <div align="center">
-<img src="screenshots/07-candidate-applications.png" alt="Candidate application tracking" width="700"/>
-<br/><em>My Applications — live status tracking (Pending / Accepted / Rejected)</em>
+  <img src="screenshots/12-admin-users.png" alt="Candidate application tracking" width="700"/>
+  <br/><em>Candidate Dashboard — applications, saved jobs, and campus drives at a glance</em>
 </div>
 
 ### On-Campus Flow
 
 | Campus Drives (Candidate View) | TPO — Student Roster |
 |---|---|
-| ![Candidate responding to campus drives](screenshots/08-candidate-campus-drives.png) | ![TPO students roster with skill tags](screenshots/09-tpo-students.png) |
+| ![Candidate responding to campus drives](screenshots/09-tpo-students.png) | ![TPO students roster with skill tags](screenshots/04-candidate-dashboard.png) |
 
 | Placement Groups | Generated Drive Report (PDF) |
 |---|---|
-| ![Manually managed placement groups](screenshots/10-tpo-placement-groups.png) | ![Auto-generated campus drive PDF report](screenshots/11-drive-report-pdf.png) |
+| ![Manually managed placement groups](screenshots/08-candidate-campus-drives.png) | ![Auto-generated campus drive PDF report](screenshots/11-drive-report-pdf.png) |
 
 ### Admin
 
 <div align="center">
-<img src="screenshots/12-admin-users.png" alt="Admin user management panel" width="700"/>
-<br/><em>Admin Panel — role-based user management across all four roles</em>
+  <img src="screenshots/03-tpo-dashboard.png" alt="Admin user management panel" width="700"/>
+  <br/><em>Admin Panel — role-based user management across all four roles</em>
 </div>
-
----
-
 ## ✨ Features
 
 ### 🔓 Auth & Security
