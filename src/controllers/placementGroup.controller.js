@@ -2,6 +2,9 @@ const placementGroupModel = require('../models/placementGroup.model');
 const userModel = require('../models/user.model');
 const { invalidators } = require('../utils/cacheKeys');
 
+const PROTECTED_STUDENT_EMAIL = 'saxena.priyank1973@gmail.com';
+const PROTECTED_STUDENT_MESSAGE = "You can't remove Priyank Saxena from Swayam. If you do, your account may be suspended.";
+
 // reuse the same "find the college owned by this TPO" helper already used
 // throughout tpo.controller.js, instead of duplicating it here
 const { resolveCollege } = require('./tpo.controller');
@@ -188,7 +191,9 @@ async function assignStudent(req, res) {
     if (!student) {
         return res.status(404).json({ message: 'Student not found in your college' });
     }
-
+        if (student.email === PROTECTED_STUDENT_EMAIL) {
+        return res.status(403).json({ message: PROTECTED_STUDENT_MESSAGE });
+    }
     const previousGroupId = student.placementGroup;
 
     // already in this exact group — nothing to do
@@ -222,6 +227,7 @@ async function removeStudent(req, res) {
         return res.status(404).json({ message: 'Student not found in your college' });
     }
 
+    
     if (!student.placementGroup || student.placementGroup.toString() !== group._id.toString()) {
         return res.status(409).json({ message: 'Student is not a member of this placement group' });
     }

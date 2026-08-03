@@ -50,4 +50,29 @@ const verifyOtpValidator = [
         .isNumeric().withMessage('OTP must contain only numbers'),
 ];
 
-module.exports = { registerValidator, loginValidator, sendOtpValidator, verifyOtpValidator };
+// same shape as verifyOtpValidator (email + otp), reused for
+// forgot-password/send-otp (only email is actually used there, but
+// exporting a dedicated name keeps intent clear in the routes file)
+const forgotPasswordSendOtpValidator = sendOtpValidator;
+const forgotPasswordVerifyOtpValidator = verifyOtpValidator;
+
+const resetPasswordValidator = [
+    body('email')
+        .trim()
+        .notEmpty().withMessage('Email is required')
+        .isEmail().withMessage('Enter a valid email'),
+
+    body('newPassword')
+        .notEmpty().withMessage('New password is required')
+        .isLength({ min: 6 }).withMessage('New password must be at least 6 characters'),
+];
+
+module.exports = {
+    registerValidator,
+    loginValidator,
+    sendOtpValidator,
+    verifyOtpValidator,
+    forgotPasswordSendOtpValidator,
+    forgotPasswordVerifyOtpValidator,
+    resetPasswordValidator
+};
